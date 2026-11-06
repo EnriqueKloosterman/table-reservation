@@ -121,11 +121,11 @@ backend/
 │   │   ├── validation/      # normalize.ts, zodIssuesToDetails(), validate step
 │   │   └── clock.ts         # Clock interface + systemClock
 │   └── modules/
-│       ├── health/          # health.routes.ts
-│       ├── auth/            # auth.routes.ts, auth.schemas.ts, auth.service.ts, staff.model.ts, password.ts, token.ts, provision-staff.ts
-│       ├── tables/          # tables.routes.ts, tables.schemas.ts, tables.service.ts, table.model.ts
-│       ├── schedule/        # schedule.routes.ts, schedule.schemas.ts, schedule.service.ts, schedule.model.ts, schedule.domain.ts
-│       └── closed-dates/    # closed-dates.routes.ts, .schemas.ts, .service.ts, closed-date.model.ts, closed-dates.domain.ts
+│       ├── health/          # health.routes.ts, health.controller.ts
+│       ├── auth/            # auth.routes.ts, auth.controller.ts, auth.schemas.ts, auth.service.ts, staff.model.ts, password.ts, token.ts, provision-staff.ts
+│       ├── tables/          # tables.routes.ts, tables.controller.ts, tables.schemas.ts, tables.service.ts, table.model.ts
+│       ├── schedule/        # schedule.routes.ts, schedule.controller.ts, schedule.schemas.ts, schedule.service.ts, schedule.model.ts, schedule.domain.ts
+│       └── closed-dates/    # closed-dates.routes.ts, .controller.ts, .schemas.ts, .service.ts, closed-date.model.ts, closed-dates.domain.ts
 ├── scripts/
 │   └── seed-staff.ts        # thin CLI over modules/auth/provision-staff.ts (tested); idempotent; normalizes email
 └── tests/
@@ -137,8 +137,13 @@ backend/
 ```
 
 **Structure Decision**: Web-service layout inside the monorepo's `backend/`, organized by
-feature module (routes, schemas, service, model, and domain where there is pure logic), with
-cross-cutting code in `src/shared/`. `src/app.ts` exports a factory with injectable `config`
+feature module (routes, controller, schemas, service, model, and domain where there is pure
+logic), with cross-cutting code in `src/shared/`. Layers: `*.routes.ts` only declares each
+operation with `defineRoute` (method, path, auth, schemas, docs, error codes) and points its
+`handler` at the module's controller; `*.controller.ts` (`create<Module>Controller(deps)`)
+holds the HTTP handlers, which read `res.locals.input` / `res.locals.staff`, call the service,
+and set status, headers and body; `*.service.ts` holds the business logic and persistence and
+knows nothing about HTTP. `src/app.ts` exports a factory with injectable `config`
 and `clock`, so tests build isolated apps (different time zones, pinned "now") without a
 network listener. `frontend/` is not created in this feature.
 

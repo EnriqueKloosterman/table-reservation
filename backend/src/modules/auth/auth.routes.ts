@@ -1,13 +1,15 @@
 import { defineRoute, type RouteContext } from "../../shared/openapi/route.js";
+import { createAuthController } from "./auth.controller.js";
 import {
   LOGIN_EXAMPLE,
   LoginRequestSchema,
   LoginResponseSchema,
   StaffProfileSchema,
 } from "./auth.schemas.js";
-import { login } from "./auth.service.js";
 
 export function registerAuthRoutes(ctx: RouteContext): void {
+  const controller = createAuthController(ctx);
+
   defineRoute(ctx, {
     method: "post",
     path: "/auth/login",
@@ -21,9 +23,7 @@ export function registerAuthRoutes(ctx: RouteContext): void {
     request: { body: { schema: LoginRequestSchema, example: LOGIN_EXAMPLE } },
     success: { status: 200, description: "Signed in.", schema: LoginResponseSchema },
     errors: ["VALIDATION_ERROR", "INVALID_CREDENTIALS"],
-    handler: async (_req, res) => {
-      res.json(await login(res.locals.input.body, ctx));
-    },
+    handler: controller.login,
   });
 
   defineRoute(ctx, {
@@ -35,9 +35,6 @@ export function registerAuthRoutes(ctx: RouteContext): void {
     auth: true,
     success: { status: 200, description: "The signed-in staff member.", schema: StaffProfileSchema },
     errors: [],
-    handler: (_req, res) => {
-      const { name, email } = res.locals.staff;
-      res.json({ name, email });
-    },
+    handler: controller.me,
   });
 }

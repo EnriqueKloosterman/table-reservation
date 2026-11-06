@@ -8,12 +8,14 @@ import {
   UPDATE_TABLE_EXAMPLE,
   UpdateTableSchema,
 } from "./tables.schemas.js";
-import { createTable, getTable, listTables, removeTable, updateTable } from "./tables.service.js";
+import { createTablesController } from "./tables.controller.js";
 
 const TAGS = ["Tables"];
 const ID_NOTE = "A malformed id answers 404 NOT_FOUND, the same as an unknown or removed id.";
 
 export function registerTableRoutes(ctx: RouteContext): void {
+  const controller = createTablesController(ctx);
+
   defineRoute(ctx, {
     method: "post",
     path: "/tables",
@@ -33,10 +35,7 @@ export function registerTableRoutes(ctx: RouteContext): void {
       }),
     },
     errors: ["VALIDATION_ERROR", "CONFLICT"],
-    handler: async (_req, res) => {
-      const table = await createTable(res.locals.input.body);
-      res.status(201).location(`/tables/${table.id}`).json(table);
-    },
+    handler: controller.create,
   });
 
   defineRoute(ctx, {
@@ -50,9 +49,7 @@ export function registerTableRoutes(ctx: RouteContext): void {
     auth: true,
     success: { status: 200, description: "Active tables.", schema: z.array(TableSchema) },
     errors: [],
-    handler: async (_req, res) => {
-      res.json(await listTables());
-    },
+    handler: controller.list,
   });
 
   defineRoute(ctx, {
@@ -65,9 +62,7 @@ export function registerTableRoutes(ctx: RouteContext): void {
     request: { params: TableIdParamsSchema },
     success: { status: 200, description: "The table.", schema: TableSchema },
     errors: ["NOT_FOUND"],
-    handler: async (_req, res) => {
-      res.json(await getTable(res.locals.input.params.id));
-    },
+    handler: controller.get,
   });
 
   defineRoute(ctx, {
@@ -86,10 +81,7 @@ export function registerTableRoutes(ctx: RouteContext): void {
     },
     success: { status: 200, description: "The updated table.", schema: TableSchema },
     errors: ["VALIDATION_ERROR", "NOT_FOUND", "CONFLICT"],
-    handler: async (_req, res) => {
-      const { params, body } = res.locals.input;
-      res.json(await updateTable(params.id, body));
-    },
+    handler: controller.update,
   });
 
   defineRoute(ctx, {
@@ -106,9 +98,6 @@ export function registerTableRoutes(ctx: RouteContext): void {
     request: { params: TableIdParamsSchema },
     success: { status: 204, description: "Removed. No body." },
     errors: ["NOT_FOUND"],
-    handler: async (_req, res) => {
-      await removeTable(res.locals.input.params.id, ctx);
-      res.status(204).end();
-    },
+    handler: controller.remove,
   });
 }
