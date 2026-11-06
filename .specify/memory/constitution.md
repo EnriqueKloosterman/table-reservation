@@ -1,15 +1,18 @@
 <!--
 Sync Impact Report
-- Version change: (unversioned template) → 1.0.0
-- Modified principles: all template placeholders replaced (initial ratification)
-  - [PRINCIPLE_1_NAME] → I. Monorepo with a Contract-First API
-  - [PRINCIPLE_2_NAME] → II. Test-First (NON-NEGOTIABLE)
-  - [PRINCIPLE_3_NAME] → III. Reservation Integrity at the Database Level
-  - [PRINCIPLE_4_NAME] → IV. Consistent, Correct HTTP Semantics
-  - [PRINCIPLE_5_NAME] → V. Simplicity and Minimal Dependencies
-- Added sections: Technology Stack & Backend Constraints; Development Workflow & Quality Gates
+- Version change: 1.0.0 → 1.1.0 (MINOR: materially expanded guidance in Principle III)
+- Modified principles:
+  - III. Reservation Integrity at the Database Level (title unchanged): the UTC storage rule
+    now applies to instants only; restaurant-local values that are not instants (service
+    hours "HH:mm", closed dates "YYYY-MM-DD") MUST be stored as text and interpreted in the
+    restaurant's configured IANA time zone, never converted to UTC timestamps. Rationale
+    expanded accordingly.
+- Added sections: none
 - Removed sections: none
 - Templates: not modified (dependent templates read the constitution at runtime)
+- Dependent artifacts to review: specs/001-restaurant-setup/spec.md (FR-017, closed-date
+  "today"/"past" edge case) is consistent; the upcoming plan's data model MUST follow the
+  amended rule.
 - Follow-up TODOs: none
 -->
 
@@ -50,13 +53,19 @@ claims to verify, and self-contained tests keep the suite reproducible on any ma
 - A table MUST never be assigned to two overlapping reservations. This invariant MUST be
   enforced at the database level (e.g. indexes, atomic conditional writes, or
   transactions), not only in application code, so it holds under concurrent requests.
-- All dates and times MUST be stored in UTC and presented in the restaurant's configured
-  time zone.
+- Instants (specific points in time, e.g. a reservation's start, a record's creation time)
+  MUST be stored in UTC and presented in the restaurant's configured time zone.
+- Restaurant-local values that are not instants — service hours as `"HH:mm"` and closed
+  dates as `"YYYY-MM-DD"` — MUST be stored as text and interpreted in the restaurant's
+  configured IANA time zone (e.g. `Europe/Madrid`). They MUST never be converted to UTC
+  timestamps.
 - Sending email MUST go through an interface so it can be mocked. An email failure MUST
   never cancel, roll back, or fail the creation of a reservation.
 
 **Rationale**: Double bookings are the core failure mode of the domain; application-only
-checks are vulnerable to race conditions. UTC storage avoids DST and offset ambiguity.
+checks are vulnerable to race conditions. UTC storage avoids DST and offset ambiguity for
+instants, while wall-clock hours and calendar dates are local by nature: converting them to
+UTC would shift them across DST changes or onto the wrong day.
 
 ### IV. Consistent, Correct HTTP Semantics
 
@@ -119,4 +128,4 @@ codebase that is easier to understand and maintain.
 - **Compliance review**: every plan and every code review MUST verify adherence to these
   principles. Added complexity MUST be justified.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-06
+**Version**: 1.1.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-06
