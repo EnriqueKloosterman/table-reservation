@@ -17,6 +17,18 @@
 - Q: Must service period names be unique within a day? → A: Yes, unique within a day, compared case-insensitively after trimming; duplicates refuse the whole update with a "validation" error.
 - Q: Should sign-in email matching ignore letter case and surrounding spaces? → A: Yes; emails are trimmed and lowercased when stored and when signing in, and uniqueness is checked on that normalized form.
 
+### Session 2026-11-06 (API checklist review)
+
+Resolutions from `checklists/api.md`; details in [contracts/api.md](./contracts/api.md).
+
+- Sign-in also returns the staff member's name and email; proof for a staff account that no longer exists is refused like any invalid proof.
+- A seventh outcome category, "service unavailable", is used only by the health check.
+- Clients branch only on the machine-readable code (and the field for validation errors); messages are not contractual.
+- Validation errors are reported all at once per validation stage; refusals are decided in the order unknown operation → authentication → validation → not found → conflict.
+- Unknown query parameters are refused on operations that accept query parameters; operations without any ignore the query string.
+- An empty or whitespace-only closure reason means "no reason".
+- SC-003, SC-004 and SC-006 are made measurable (see Success Criteria).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Staff sign-in and protected access (Priority: P1)
@@ -29,10 +41,10 @@ A staff member signs in with their credentials and receives proof of authenticat
 
 **Acceptance Scenarios**:
 
-1. **Given** a provisioned staff account, **When** the staff member signs in with the correct email and password, **Then** the system confirms the sign-in and returns proof of authentication with its expiry.
+1. **Given** a provisioned staff account, **When** the staff member signs in with the correct email and password, **Then** the system confirms the sign-in and returns proof of authentication with its expiry, together with the staff member's name and email.
 2. **Given** a provisioned staff account, **When** someone signs in with a wrong password or an unknown email, **Then** the system refuses the sign-in with an "invalid credentials" error that does not reveal which of the two was wrong.
 3. **Given** no proof of authentication, **When** any management operation is called, **Then** the system refuses it with an "authentication required" error.
-4. **Given** an expired, tampered or malformed proof of authentication, **When** any management operation is called, **Then** the system refuses it with an "authentication required" error.
+4. **Given** an expired, tampered or malformed proof of authentication, or proof issued to a staff account that no longer exists, **When** any management operation is called, **Then** the system refuses it with an "authentication required" error.
 5. **Given** a staff account provisioned as "ana@resto.com", **When** someone signs in with " Ana@Resto.com " and the correct password, **Then** the sign-in succeeds.
 6. **Given** a signed-in staff member, **When** they request their own profile, **Then** the system returns their name and email but never their password.
 
@@ -49,7 +61,7 @@ A signed-in staff member maintains the list of tables in the restaurant: they ad
 **Acceptance Scenarios**:
 
 1. **Given** a signed-in staff member, **When** they create a table named "T1" with capacity 4, **Then** the system stores it and returns the created table with its identifier.
-2. **Given** existing tables, **When** the staff member lists tables, **Then** the system returns all tables with their name and capacity, ordered by name.
+2. **Given** existing tables, **When** the staff member lists tables, **Then** the system returns all tables with their name and capacity, ordered by name ignoring letter case and with numbers in natural order ("T2" before "T10").
 3. **Given** a table named "T1" exists, **When** the staff member creates or renames another table to "T1" (ignoring letter case and surrounding spaces), **Then** the system refuses with a "conflict" error.
 4. **Given** an existing table, **When** the staff member updates its capacity to 6, **Then** subsequent reads show capacity 6.
 5. **Given** a table creation or update with a missing name, a capacity of 0, a negative capacity, a non-whole capacity or a capacity above the maximum, **When** it is submitted, **Then** the system refuses with a "validation" error identifying the invalid field(s).
@@ -64,7 +76,7 @@ A signed-in staff member defines, for each day of the week, whether the restaura
 
 **Why this priority**: Service hours define when reservations can be taken in later features. Tables come first because they are needed in any case, but the schedule is required before availability can exist.
 
-**Independent Test**: Can be fully tested by signing in, viewing the default schedule (all days closed), submitting a schedule with lunch and dinner on some days and no periods on others, and confirming that the returned schedule matches.
+**Independent Test**: Can be fully tested by signing in, viewing the default schedule (all days closed), submitting a schedule with lunch and dinner on some days and no periods on others, and confirming that the returned schedule matches (equivalent content in normalized form: all seven days in Monday-first order, periods in chronological order, names trimmed).
 
 **Acceptance Scenarios**:
 
@@ -108,13 +120,13 @@ A developer integrating with the backend (for example the future staff interface
 
 1. **Given** the backend is running, **When** a developer opens the documentation address, **Then** they see every operation of this feature with request and response descriptions, including error responses.
 2. **Given** the documentation, **When** the developer signs in and supplies the resulting proof of authentication, **Then** they can execute protected operations directly from the documentation.
-3. **Given** any refused request (validation, authentication, not found, conflict, unexpected failure), **When** the response is inspected, **Then** it contains an error with a stable machine-readable code, a human-readable message, and optional details (for validation errors, the list of offending fields and reasons).
+3. **Given** any refused request (validation, authentication, invalid credentials, not found, conflict, service unavailable, unexpected failure), **When** the response is inspected, **Then** it contains an error with a stable machine-readable code, a human-readable message, and optional details (for validation errors, the list of offending fields and reasons).
 
 ---
 
 ### Edge Cases
 
-- A request body that is not well-formed or has unexpected extra fields is refused with a "validation" error, never an unexpected-failure error.
+- A request body that is not well-formed, is not sent as JSON, exceeds the size limit, or has unexpected extra fields is refused with a "validation" error, never an unexpected-failure error. Unknown query parameters are refused the same way on operations that accept query parameters; operations that accept none ignore the query string.
 - Table names that differ only in letter case or surrounding spaces are treated as duplicates; surrounding spaces are trimmed before storing.
 - Removing a table has no reservation check yet; once reservations exist (feature 002), removing a table with future reservations MUST be refused with a "conflict" error. This rule is documented now and enforced later.
 - A day of the week submitted with an empty list of periods is a closed day; a schedule that omits a day treats that day as closed.
@@ -123,7 +135,8 @@ A developer integrating with the backend (for example the future staff interface
 - A closed date that falls on a day already closed in the weekly schedule is still accepted (it remains valid if the weekly schedule later changes).
 - "Today" and "past" for closed dates are evaluated in the restaurant's time zone, not the server's.
 - Unexpected internal failures return an "internal error" response in the standard error structure without exposing internal details.
-- Calling an operation that does not exist returns a "not found" error in the standard error structure.
+- Calling an operation that does not exist (unknown path or unsupported method) returns a "not found" error in the standard error structure, even without proof of authentication.
+- When several refusals apply to one request, they are decided in this order: unknown operation, authentication, validation, not found, conflict (for example, re-adding a past date that is already closed is a "validation" error).
 
 ## Requirements *(mandatory)*
 
@@ -131,9 +144,9 @@ A developer integrating with the backend (for example the future staff interface
 
 **Staff access**
 
-- **FR-001**: System MUST allow a staff member to sign in with email and password and, on success, return proof of authentication and its expiry time. Email matching MUST ignore letter case and surrounding spaces.
+- **FR-001**: System MUST allow a staff member to sign in with email and password and, on success, return proof of authentication, its expiry time (a UTC instant) and the staff member's name and email. Email matching MUST ignore letter case and surrounding spaces.
 - **FR-002**: System MUST refuse sign-in with incorrect credentials using a single generic "invalid credentials" error that does not reveal whether the email exists.
-- **FR-003**: System MUST require valid, unexpired proof of authentication for every management operation (tables, service hours, closed dates, staff profile); only sign-in, the documentation and a basic health check are public.
+- **FR-003**: System MUST require valid, unexpired proof of authentication for every management operation (tables, service hours, closed dates, staff profile); only sign-in, the documentation (interactive page and its machine-readable description) and a basic health check are public. Proof issued to a staff account that no longer exists MUST be refused.
 - **FR-004**: Proof of authentication MUST expire after a configurable period (default 8 hours); expired proof MUST be refused.
 - **FR-005**: System MUST store staff passwords only in a non-reversible form and MUST never return them in any response.
 - **FR-006**: System MUST allow an operator to provision the initial staff account(s) outside the API (for example during setup) without any public registration operation.
@@ -150,24 +163,24 @@ A developer integrating with the backend (for example the future staff interface
 
 - **FR-012**: System MUST maintain one weekly schedule covering all seven days of the week, where each day has zero or more named service periods, each with a start time and end time (hours and minutes).
 - **FR-013**: A day with no service periods MUST be treated as closed; before any schedule is set, all days are closed.
-- **FR-014**: Staff MUST be able to view the weekly schedule and replace it as a whole in one update.
+- **FR-014**: Staff MUST be able to view the weekly schedule and replace it as a whole in one update. Both operations return the schedule in normalized form: all seven days in Monday-first order, periods in chronological order, names trimmed.
 - **FR-015**: System MUST refuse a schedule update in its entirety if any period has an end time not after its start time, if periods on the same day overlap, if a time is invalid, if a period name is empty or longer than 50 characters (after trimming), if two periods on the same day share a name (compared case-insensitively after trimming), or if a day is unknown or repeated.
 - **FR-016**: Service periods within a day MUST be returned in chronological order.
 - **FR-017**: Service hours MUST be interpreted in the restaurant's configured time zone.
 
 **Closed dates**
 
-- **FR-018**: Staff MUST be able to mark a calendar date as closed, with an optional reason of up to 200 characters.
+- **FR-018**: Staff MUST be able to mark a calendar date as closed, with an optional reason of up to 200 characters (trimmed; an empty or whitespace-only reason means no reason).
 - **FR-019**: System MUST refuse marking a date that is already closed (conflict), a date in the past, or an invalid calendar date (validation).
 - **FR-020**: Staff MUST be able to list closed dates (from today onwards by default, in chronological order, with an option to include past dates) and remove a closed date by specifying the calendar date itself; the date is the closure's unique identifier and no separate identifier is exposed.
 
 **API quality**
 
-- **FR-021**: Every refused request MUST return an error in one consistent structure containing a stable machine-readable code, a human-readable message, and optional details.
-- **FR-022**: The outcome categories MUST be distinguishable to the caller: validation error, authentication required, invalid credentials, not found, conflict, and internal error.
-- **FR-023**: Validation errors MUST identify each offending field and the reason it was refused.
+- **FR-021**: Every refused request MUST return an error in one consistent structure containing a stable machine-readable code, a human-readable message, and optional details. Only the code (and, for validation errors, the field) is stable; message texts may change and clients MUST NOT depend on them.
+- **FR-022**: The outcome categories MUST be distinguishable to the caller: validation error, authentication required, invalid credentials, not found, conflict, service unavailable (health check only, when storage is unreachable), and internal error.
+- **FR-023**: Validation errors MUST identify each offending field and the reason it was refused, using one field-path convention for body, query and path inputs. All offending fields found at the same validation stage (format first, then cross-item rules) MUST be reported in a single response.
 - **FR-024**: All input MUST be validated before any change is made; a refused request MUST leave stored data unchanged.
-- **FR-025**: System MUST publish interactive documentation describing every operation, its inputs, its outputs and its error responses, allowing protected operations to be tried after signing in.
+- **FR-025**: System MUST publish interactive documentation describing every operation, its inputs, its outputs and its error responses, allowing protected operations to be tried after signing in. Every documented operation MUST have a summary, a description, and an example for each request body.
 
 ### Key Entities
 
@@ -183,10 +196,10 @@ A developer integrating with the backend (for example the future staff interface
 
 - **SC-001**: A staff member can configure a new restaurant from scratch (sign in, create 10 tables, set a weekly schedule with lunch and dinner, add 3 closed dates) in under 10 minutes using only the interactive documentation.
 - **SC-002**: 100% of management operations refuse requests without valid authentication, verified by an automated check covering every protected operation.
-- **SC-003**: 100% of refused requests across all operations use the same error structure, and every validation error names the offending field(s).
-- **SC-004**: 100% of the operations in this feature appear in the interactive documentation with their success and error responses described.
+- **SC-003**: 100% of refused requests use the same error structure, and every validation error names the offending field(s), verified by an automated check with at least one request for each case: validation error, malformed JSON, non-JSON body, oversized body, unknown field, missing proof, invalid credentials, unknown operation, unknown table, conflict, service unavailable and a forced unexpected failure.
+- **SC-004**: 100% of the operations in this feature (the 13 API operations plus the machine-readable documentation itself; the interactive page is not counted) appear in the documentation with their success and error responses described. "Described" means: each response lists its status, a description and its body schema, every error status the operation can produce is listed with the standard error schema, and every request body has an example.
 - **SC-005**: Every accepted change (table, schedule, closed date) is visible on the very next read; every refused change leaves the previously stored data unchanged.
-- **SC-006**: Staff receive a response to any management operation in under 1 second under normal load.
+- **SC-006**: 95% of responses to any management operation arrive in under 1 second under normal load, defined as up to 10 concurrent requests against a dataset of 100 tables, one weekly schedule and 500 closed dates, with the storage on the same network.
 
 ## Assumptions
 
@@ -194,7 +207,9 @@ A developer integrating with the backend (for example the future staff interface
 - There is a single staff role; all staff members have the same permissions. Staff account management (inviting, deactivating, changing passwords) is out of scope; accounts are provisioned by an operator during setup.
 - Sign-in uses email and password. Sign-out is achieved by the client discarding its proof of authentication; server-side revocation is out of scope.
 - Protection against repeated sign-in attempts (rate limiting, lockout) is out of scope for this feature.
-- The restaurant's time zone is a setup-time configuration value, not editable through the API in this feature.
+- The restaurant's time zone is a setup-time configuration value, neither editable nor exposed through the API in this feature; clients show times and dates as restaurant-local values without conversion, and the server decides what "today" is.
+- The API is unversioned in this feature; later features change it additively only.
+- The API is callable from browsers on the origins configured at setup (CORS).
 - Table capacity is the maximum number of guests a table seats; minimum-party rules, table combining and table areas/zones are out of scope.
 - Closures cover whole days only; partial-day closures and special opening hours on specific dates are out of scope.
 - Changing the schedule, tables or closed dates has no effect on existing reservations because none exist yet; how such changes interact with reservations is decided in feature 002.
