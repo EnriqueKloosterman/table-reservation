@@ -136,7 +136,7 @@ A developer integrating with the backend (for example the future staff interface
 - "Today" and "past" for closed dates are evaluated in the restaurant's time zone, not the server's.
 - Unexpected internal failures return an "internal error" response in the standard error structure without exposing internal details.
 - Calling an operation that does not exist (unknown path or unsupported method) returns a "not found" error in the standard error structure, even without proof of authentication.
-- When several refusals apply to one request, they are decided in this order: unknown operation, authentication, validation, not found, conflict (for example, re-adding a past date that is already closed is a "validation" error).
+- When several refusals apply to one request, they are decided in this order: unknown operation, authentication, validation, not found, conflict (for example, re-adding a past date that is already closed is a "validation" error). Body problems (not well-formed, not JSON, too large) are validation errors and follow the same order: on an unknown operation they yield "not found", and on a management operation called without valid proof of authentication they yield "authentication required".
 
 ## Requirements *(mandatory)*
 

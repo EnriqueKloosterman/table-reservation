@@ -46,7 +46,7 @@ test-first with Vitest, Supertest and mongodb-memory-server.
 | Principle | Requirement | How this plan complies | Status |
 |---|---|---|---|
 | I. Monorepo, contract-first | `backend/` + `frontend/` at root, shared `specs/`; OpenAPI generated from Zod, served at `/docs` | All code under `backend/`; `frontend/` can be added later without moving anything. `defineRoute()` registers Zod schemas with zod-to-openapi; `/openapi.json` + `/docs`. | ✅ |
-| II. Test-first (NON-NEGOTIABLE) | Vitest + Supertest, failing first; mongodb-memory-server; external effects mocked | Each story's tasks start with failing tests (unit → integration), run and seen red before implementation. `globalSetup` starts mongodb-memory-server. No external side effects in this feature (no email). | ✅ |
+| II. Test-first (NON-NEGOTIABLE) | Vitest + Supertest, failing first; mongodb-memory-server; external effects mocked | Each story's tasks start with failing tests (unit → integration), run and seen red before implementation; foundational pipeline and error middleware get their own failing tests first. `globalSetup` starts mongodb-memory-server. No external side effects in this feature (no email). Verification-only contract/performance tests use a mutation check to be seen failing (documented deviation, see Complexity Tracking). | ✅ (1 justified deviation) |
 | III. Integrity at DB level; time rules | DB-level invariants; instants UTC; local values as text in IANA zone | Unique indexes (one partial) + `11000 → CONFLICT`, no read-then-write. Schedule replaced with one atomic upsert. `HH:mm` and `YYYY-MM-DD` stored as text; "today" via `Intl` in `RESTAURANT_TIME_ZONE`; timestamps/`removedAt`/`expiresAt` UTC. The reservation-overlap invariant does not apply yet (no reservations). | ✅ |
 | IV. HTTP semantics, error shape, Zod first | Correct status codes; `{ error: { code, message, details? } }`; Zod before domain | 201/200/204/400/401/404/409/500/503 per [contract](./contracts/api.md). One error middleware + 404 fallback. Validation step runs before every handler; `.strict()` schemas. | ✅ |
 | V. Simplicity, minimal deps | Justify each dependency; MongoDB only external runtime dep; YAGNI | Justification table below; `node:crypto` scrypt, `Intl`, `--env-file` replace bcrypt/date-libs/dotenv. No restaurant entity, roles, or rate limiting (out of scope, documented as debt). | ✅ |
@@ -58,6 +58,8 @@ test-first with Vitest, Supertest and mongodb-memory-server.
 `SERVICE_UNAVAILABLE` (503), used only by `/health` when the DB is down. This *applies*
 Principle IV (correct status + standard shape) rather than deviating from it; see
 [research R9](./research.md#r9-error-model-and-mapping).
+**Gate result (post-analysis re-check)**: PASS with one justified Principle II deviation
+(verification-only suites proven red by mutation), recorded in Complexity Tracking.
 
 ### Dependency justification (Principle V)
 
@@ -120,17 +122,17 @@ backend/
 │   │   └── clock.ts         # Clock interface + systemClock
 │   └── modules/
 │       ├── health/          # health.routes.ts
-│       ├── auth/            # auth.routes.ts, auth.schemas.ts, auth.service.ts, staff.model.ts, password.ts, token.ts
+│       ├── auth/            # auth.routes.ts, auth.schemas.ts, auth.service.ts, staff.model.ts, password.ts, token.ts, provision-staff.ts
 │       ├── tables/          # tables.routes.ts, tables.schemas.ts, tables.service.ts, table.model.ts
 │       ├── schedule/        # schedule.routes.ts, schedule.schemas.ts, schedule.service.ts, schedule.model.ts, schedule.domain.ts
 │       └── closed-dates/    # closed-dates.routes.ts, .schemas.ts, .service.ts, closed-date.model.ts, closed-dates.domain.ts
 ├── scripts/
-│   └── seed-staff.ts        # idempotent; STAFF_NAME/EMAIL/PASSWORD; normalizes email
+│   └── seed-staff.ts        # thin CLI over modules/auth/provision-staff.ts (tested); idempotent; normalizes email
 └── tests/
     ├── setup/               # global-setup.ts (MongoMemoryServer), db.ts (per-file DB, clear between tests)
     ├── helpers/             # buildTestApp, seedStaff, loginAs, expectError
-    ├── unit/                # normalize, env, password, schedule.domain, closed-dates.domain
-    ├── integration/         # health, auth (US1), tables (US2), schedule (US3), closed-dates (US4)
+    ├── unit/                # normalize, env, zod-issues, password, schedule.domain, closed-dates.domain
+    ├── integration/         # health, cors, validation-pipeline, auth + provision-staff (US1), tables (US2), schedule (US3), closed-dates (US4), performance
     └── contract/            # auth-coverage (SC-002), error-shape (SC-003), openapi-coverage (SC-004)
 ```
 
@@ -146,15 +148,22 @@ Full rationale in [research.md](./research.md).
 
 1. **One route definition → validation + docs** (R8). `defineRoute({ method, path, auth,
    request, responses, errors, handler })` registers in the `OpenAPIRegistry` and mounts the
-   Express handler behind `requireAuth` and Zod parsing. Parsed input goes to
-   `res.locals.input`.
+   Express handler as `requireAuth` (if `auth`) → `jsonBody()` (only if the route has a body
+   schema: Content-Type check + `express.json({ limit: "100kb" })`) → Zod validation →
+   handler. Parsed input goes to `res.locals.input`. There is **no global body parser**: a
+   malformed, oversized or non-JSON body is only read after the route has matched and the
+   caller is authenticated, so the refusal order route match (404) → authentication (401) →
+   validation (400) holds for body errors too.
 2. **Errors** (R9). `AppError` + code→status table; middleware maps `ZodError`, malformed JSON
    (`entity.parse.failed`), oversized body, stray Mongo `11000`, and unknown errors (logged
    server-side; the client gets a generic `INTERNAL_ERROR`). `details: [{ field, reason }]`.
    Final 404 middleware.
 3. **Auth** (R3, R4, R10). jose HS256, claims `sub` + `exp`. scrypt with a per-user salt and
    `timingSafeEqual`; an unknown email still runs a dummy verify. A token for a deleted staff
-   member is refused.
+   member is refused. Staff provisioning (FR-006) lives in `modules/auth/provision-staff.ts`
+   (`parseProvisionEnv` + `provisionStaff`, create-and-catch-`11000` for idempotency) and is
+   covered by integration tests; `scripts/seed-staff.ts` is only a CLI wrapper (connect,
+   call, print, exit code), so no untested logic exists (Principle II).
 4. **Tables** (R7, R12). `nameKey` + partial unique index; insert or update, and catch
    `11000`. Self-rename is safe. Soft delete via a conditional `findOneAndUpdate`. List uses a
    numeric-aware collation.
@@ -170,6 +179,20 @@ Full rationale in [research.md](./research.md).
 - **Order per story**: write unit tests for that story's pure functions, then integration
   tests for every acceptance scenario, then run them and confirm they fail (Red); implement
   (Green); refactor.
+- **Foundational code is test-first too**: `zodIssuesToDetails` has its own unit test, and the
+  request pipeline (`jsonBody`, validation step, `defineRoute` order) plus the error
+  middleware (malformed/oversized/non-JSON body, unknown fields, `11000` safety net,
+  sanitized `INTERNAL_ERROR`) are covered by a `validation-pipeline` integration test that
+  mounts test-only routes through `createApp({ configureTestRoutes })`. Both are seen failing
+  before Phase 2 implementation.
+- **Refusal order is tested where it is built**: there is no separate after-the-fact
+  check-order suite; each precedence case lives in the story or contract test that first
+  exercises it.
+- **Verification-only tests** (SC-002 auth coverage, SC-003 error shape, SC-006 performance)
+  check behavior that earlier stories already delivered, so they may pass as soon as they are
+  written. Each is proven able to fail with a temporary mutation check before it counts as
+  GREEN (see Complexity Tracking). The SC-004 coverage test includes document-level
+  assertions that only the US5 documentation work satisfies, so it is genuinely red first.
 - **Required special cases**:
   - Concurrent `POST /tables` ×2 with the same name (`Promise.all`): exactly one 201, one 409,
     one document.
@@ -182,6 +205,10 @@ Full rationale in [research.md](./research.md).
   - Expired token: sign with a clock in the past, or verify with a clock after `exp` → 401.
   - Tampered token (flip a signature char), `alg: none` token, and a token signed with another
     secret → 401.
+  - Body errors respect the refusal order: malformed JSON / oversized / `text/plain` body on an
+    unknown route → 404; on a protected route without a token → 401; with a valid token → 400.
+  - Provisioning: second run with the same (differently cased) email is a no-op; two concurrent
+    runs create exactly one account; every invalid env key is reported at once.
 - **Contract suites**: see [research R14](./research.md#r14-testing-harness). `expectError()`
   validates the error body schema in every negative test.
 
@@ -193,9 +220,10 @@ Full rationale in [research.md](./research.md).
    `shared/clock.ts`, error model + middleware + 404, validation helpers (`normalize`, Zod
    issues → details), OpenAPI scaffolding (`zod.ts`, registry, `defineRoute`, document,
    `/openapi.json`, `/docs`, `bearerAuth` scheme), `app.ts` factory, `server.ts`, health
-   module, test harness (global setup, per-file DB, helpers).
-3. **US1 Auth (P1)**: password + token + `requireAuth`, staff model, login, `/auth/me`, seed
-   script.
+   module, test harness (global setup, per-file DB, helpers). Tests first: `normalize`, `env`,
+   `zod-issues` (unit), then `health`, `cors`, `validation-pipeline` (integration).
+3. **US1 Auth (P1)**: password + token + `requireAuth`, staff model, login, `/auth/me`,
+   provisioning module (test-first) + seed CLI wrapper.
 4. **US2 Tables (P1)**: model + partial index, service, routes, concurrency and reuse tests.
 5. **US3 Schedule (P2)**: domain validator (unit-heavy), model, service upsert, routes.
 6. **US4 Closed dates (P3)**: domain (calendar + today), model, service, routes, time-zone
@@ -205,4 +233,6 @@ Full rationale in [research.md](./research.md).
 
 ## Complexity Tracking
 
-No constitution violations; nothing to justify.
+| Deviation | Principle | Why it is needed | Simpler alternative rejected because | Mitigation |
+|---|---|---|---|---|
+| The verification-only tests `tests/contract/auth-coverage.test.ts` (SC-002), `tests/contract/error-shape.test.ts` (SC-003) and `tests/integration/performance.test.ts` (SC-006) may pass as soon as they are written, because the behavior they check was already built test-first in US1–US4. | II. Test-First: "observed failing before the implementation is written" | These suites check cross-cutting properties over the finished set of operations (every secured route, every error case, latency across all resources), so they can only be written once those operations exist. | Writing them earlier would mean listing operations that do not exist yet; leaving them out would drop SC-002/003/006 verification. Adding an implementation step just to make them fail first would be artificial. | Each suite must be **seen failing** through a recorded, temporary mutation before it counts as GREEN: a secured route mounted with `auth: false` (SC-002); the error middleware leaking `err.message` in `details` (SC-003); `P95_LIMIT_MS = 0` (SC-006). The mutation is then reverted (`git diff` clean for `src/`). Every other test in the feature follows Red → Green strictly, including the foundational pipeline. |
