@@ -8,6 +8,15 @@
 
 **Input**: User description: "Build the foundation of the backend for a table reservation system for a single restaurant. This feature covers staff access and the configuration of the restaurant (tables, service hours, closed dates). Taking reservations comes in later features and is out of scope here."
 
+## Clarifications
+
+### Session 2026-11-06
+
+- Q: When staff remove a table, should it be permanently deleted or kept as an inactive record? → A: Soft delete: the table is marked removed, hidden from list and single reads ("not found"), and its name becomes available for reuse.
+- Q: Should a closed date be removed by its calendar date or by a generated identifier? → A: By calendar date; the date is the closure's natural identifier and closures are returned with date and reason only.
+- Q: Must service period names be unique within a day? → A: Yes, unique within a day, compared case-insensitively after trimming; duplicates refuse the whole update with a "validation" error.
+- Q: Should sign-in email matching ignore letter case and surrounding spaces? → A: Yes; emails are trimmed and lowercased when stored and when signing in, and uniqueness is checked on that normalized form.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Staff sign-in and protected access (Priority: P1)
@@ -24,7 +33,8 @@ A staff member signs in with their credentials and receives proof of authenticat
 2. **Given** a provisioned staff account, **When** someone signs in with a wrong password or an unknown email, **Then** the system refuses the sign-in with an "invalid credentials" error that does not reveal which of the two was wrong.
 3. **Given** no proof of authentication, **When** any management operation is called, **Then** the system refuses it with an "authentication required" error.
 4. **Given** an expired, tampered or malformed proof of authentication, **When** any management operation is called, **Then** the system refuses it with an "authentication required" error.
-5. **Given** a signed-in staff member, **When** they request their own profile, **Then** the system returns their name and email but never their password.
+5. **Given** a staff account provisioned as "ana@resto.com", **When** someone signs in with " Ana@Resto.com " and the correct password, **Then** the sign-in succeeds.
+6. **Given** a signed-in staff member, **When** they request their own profile, **Then** the system returns their name and email but never their password.
 
 ---
 
@@ -43,8 +53,8 @@ A signed-in staff member maintains the list of tables in the restaurant: they ad
 3. **Given** a table named "T1" exists, **When** the staff member creates or renames another table to "T1" (ignoring letter case and surrounding spaces), **Then** the system refuses with a "conflict" error.
 4. **Given** an existing table, **When** the staff member updates its capacity to 6, **Then** subsequent reads show capacity 6.
 5. **Given** a table creation or update with a missing name, a capacity of 0, a negative capacity, a non-whole capacity or a capacity above the maximum, **When** it is submitted, **Then** the system refuses with a "validation" error identifying the invalid field(s).
-6. **Given** an existing table, **When** the staff member removes it, **Then** it no longer appears in the list.
-7. **Given** a table identifier that does not exist, **When** the staff member reads, updates or removes it, **Then** the system responds with a "not found" error.
+6. **Given** an existing table, **When** the staff member removes it, **Then** it no longer appears in the list, reading it returns a "not found" error, and its name can be used for a new table.
+7. **Given** a table identifier that does not exist or belongs to a removed table, **When** the staff member reads, updates or removes it, **Then** the system responds with a "not found" error.
 
 ---
 
@@ -63,7 +73,8 @@ A signed-in staff member defines, for each day of the week, whether the restaura
 3. **Given** a submitted period whose end time is not after its start time, **When** it is submitted, **Then** the system refuses the whole update with a "validation" error identifying the day and period.
 4. **Given** two periods on the same day that overlap (for example 12:00–15:00 and 14:00–17:00), **When** they are submitted, **Then** the system refuses the whole update with a "validation" error.
 5. **Given** a time that is not a valid time of day (for example "25:00" or "12:7"), or an unknown day of the week, **When** it is submitted, **Then** the system refuses with a "validation" error.
-6. **Given** a refused update, **When** the schedule is viewed, **Then** the previously stored schedule is unchanged.
+6. **Given** two periods on the same day named "Lunch" and " lunch " (even if they do not overlap), **When** they are submitted, **Then** the system refuses the whole update with a "validation" error identifying the day and the duplicated name.
+7. **Given** a refused update, **When** the schedule is viewed, **Then** the previously stored schedule is unchanged.
 
 ---
 
@@ -81,7 +92,7 @@ A signed-in staff member marks specific calendar dates on which the restaurant i
 2. **Given** existing closed dates, **When** the staff member lists them, **Then** the system returns closures from today onwards in chronological order; earlier closures can be included on request.
 3. **Given** 2026-12-25 is already marked as closed, **When** the staff member marks it again, **Then** the system refuses with a "conflict" error.
 4. **Given** a date in the past or an invalid date (for example 2026-02-30), **When** it is submitted, **Then** the system refuses with a "validation" error.
-5. **Given** an existing closure, **When** the staff member removes it, **Then** it no longer appears in the list; removing a closure that does not exist returns a "not found" error.
+5. **Given** an existing closure for 2026-12-25, **When** the staff member removes the closure for that date, **Then** it no longer appears in the list; removing a closure for a date that is not marked closed returns a "not found" error.
 
 ---
 
@@ -120,7 +131,7 @@ A developer integrating with the backend (for example the future staff interface
 
 **Staff access**
 
-- **FR-001**: System MUST allow a staff member to sign in with email and password and, on success, return proof of authentication and its expiry time.
+- **FR-001**: System MUST allow a staff member to sign in with email and password and, on success, return proof of authentication and its expiry time. Email matching MUST ignore letter case and surrounding spaces.
 - **FR-002**: System MUST refuse sign-in with incorrect credentials using a single generic "invalid credentials" error that does not reveal whether the email exists.
 - **FR-003**: System MUST require valid, unexpired proof of authentication for every management operation (tables, service hours, closed dates, staff profile); only sign-in, the documentation and a basic health check are public.
 - **FR-004**: Proof of authentication MUST expire after a configurable period (default 8 hours); expired proof MUST be refused.
@@ -131,8 +142,8 @@ A developer integrating with the backend (for example the future staff interface
 **Tables**
 
 - **FR-008**: Staff MUST be able to create a table with a name (text, 1–50 characters after trimming) and a seating capacity (whole number from 1 to 50).
-- **FR-009**: Table names MUST be unique within the restaurant, compared case-insensitively after trimming.
-- **FR-010**: Staff MUST be able to list all tables, read a single table, update a table's name and/or capacity, and remove a table.
+- **FR-009**: Table names MUST be unique among non-removed tables, compared case-insensitively after trimming; a removed table's name MAY be reused.
+- **FR-010**: Staff MUST be able to list all tables, read a single table, update a table's name and/or capacity, and remove a table. Removal MUST be a soft delete: the table record is retained and marked removed, and removed tables MUST be excluded from list, read, update and remove operations (treated as "not found"). Restoring a removed table is out of scope.
 - **FR-011**: The rule "a table with future reservations cannot be removed" MUST be documented as part of the removal operation; in this feature removal is always allowed because reservations do not exist yet.
 
 **Service hours**
@@ -140,7 +151,7 @@ A developer integrating with the backend (for example the future staff interface
 - **FR-012**: System MUST maintain one weekly schedule covering all seven days of the week, where each day has zero or more named service periods, each with a start time and end time (hours and minutes).
 - **FR-013**: A day with no service periods MUST be treated as closed; before any schedule is set, all days are closed.
 - **FR-014**: Staff MUST be able to view the weekly schedule and replace it as a whole in one update.
-- **FR-015**: System MUST refuse a schedule update in its entirety if any period has an end time not after its start time, if periods on the same day overlap, if a time is invalid, if a period name is empty or longer than 50 characters, or if a day is unknown or repeated.
+- **FR-015**: System MUST refuse a schedule update in its entirety if any period has an end time not after its start time, if periods on the same day overlap, if a time is invalid, if a period name is empty or longer than 50 characters (after trimming), if two periods on the same day share a name (compared case-insensitively after trimming), or if a day is unknown or repeated.
 - **FR-016**: Service periods within a day MUST be returned in chronological order.
 - **FR-017**: Service hours MUST be interpreted in the restaurant's configured time zone.
 
@@ -148,7 +159,7 @@ A developer integrating with the backend (for example the future staff interface
 
 - **FR-018**: Staff MUST be able to mark a calendar date as closed, with an optional reason of up to 200 characters.
 - **FR-019**: System MUST refuse marking a date that is already closed (conflict), a date in the past, or an invalid calendar date (validation).
-- **FR-020**: Staff MUST be able to list closed dates (from today onwards by default, in chronological order, with an option to include past dates) and remove a closed date.
+- **FR-020**: Staff MUST be able to list closed dates (from today onwards by default, in chronological order, with an option to include past dates) and remove a closed date by specifying the calendar date itself; the date is the closure's unique identifier and no separate identifier is exposed.
 
 **API quality**
 
@@ -160,11 +171,11 @@ A developer integrating with the backend (for example the future staff interface
 
 ### Key Entities
 
-- **Staff Member**: A person who operates the restaurant's management features. Attributes: name, email (unique, used to sign in), protected password. All staff members have the same permissions.
-- **Table**: A physical table that can later be assigned to reservations. Attributes: name or number (unique), seating capacity.
+- **Staff Member**: A person who operates the restaurant's management features. Attributes: name, email (stored trimmed and lowercased; unique in that form; used to sign in), protected password. All staff members have the same permissions.
+- **Table**: A physical table that can later be assigned to reservations. Attributes: name or number (unique among non-removed tables), seating capacity, removal marker (when the table was removed; empty while active). Removed tables are kept so later reservation history can still refer to them.
 - **Weekly Schedule**: The restaurant's recurring opening pattern. One per restaurant; contains, for each day of the week, a list of Service Periods.
-- **Service Period**: A named time window on a given day of the week during which the restaurant serves guests (for example Lunch, Dinner). Attributes: name, start time, end time.
-- **Closed Date**: A specific calendar date on which the restaurant is closed regardless of the weekly schedule. Attributes: date, optional reason.
+- **Service Period**: A named time window on a given day of the week during which the restaurant serves guests (for example Lunch, Dinner). Attributes: name (unique within its day, case-insensitive after trimming), start time, end time.
+- **Closed Date**: A specific calendar date on which the restaurant is closed regardless of the weekly schedule. Attributes: date (unique; identifies the closure), optional reason.
 
 ## Success Criteria *(mandatory)*
 
