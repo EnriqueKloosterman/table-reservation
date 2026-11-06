@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import type { Config } from "./config/env.js";
 import { isDatabaseUp as defaultIsDatabaseUp } from "./db/connection.js";
+import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
 import { systemClock, type Clock } from "./shared/clock.js";
 import { errorMiddleware } from "./shared/errors/error-middleware.js";
@@ -49,6 +50,7 @@ export function createApp({
 
   registerHealthRoutes(ctx, isDatabaseUp);
   // register module routes here (US1–US4)
+  registerAuthRoutes(ctx);
   configureTestRoutes?.(ctx);
   registerDocsRoutes(ctx);
 
