@@ -90,12 +90,12 @@ part, YAGNI; the repair-on-retry path in R3 and the README debt entry are enough
   process alive. A sender that never resolves is abandoned after `EMAIL_TIMEOUT_MS`; the
   attempt is logged as failed with `reason: "EmailTimeout"` (the name of the timeout error).
 - Failure log: exactly one `console.error(JSON.stringify({ event: "email_failed", kind,
-  reservationId, reason }))` where `reason = error.code ?? error.name`. `error.message` is
+  reservationId, reason, at }))` where `reason = error.code ?? error.name` and `at` is the ISO-8601 UTC time of the failure. `error.message` is
   never read for logging because SMTP errors often embed the recipient address; the code,
   the full address and the secret code are never logged. `reason` is truncated to a short
   length and non-strings fall back to `"Unknown"`.
 - `NoopEmailSender` (no `SMTP_URL`) logs `console.log(JSON.stringify({ event:
-  "email_skipped", kind, reservationId }))` and resolves. Because the sender interface only
+  "email_skipped", kind, reservationId, at }))` and resolves. Because the sender interface only
   receives `{ to, subject, text }`, `kind` and `reservationId` are passed to the sender as an
   optional second argument `meta` (`send(message, meta)`) used by the noop sender for its log
   line and ignored by SMTP/fake senders other than for recording. This keeps the interface
