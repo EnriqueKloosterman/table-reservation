@@ -4,6 +4,7 @@ import type { Config } from "./config/env.js";
 import { isDatabaseUp as defaultIsDatabaseUp } from "./db/connection.js";
 import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
+import { registerScheduleRoutes } from "./modules/schedule/schedule.routes.js";
 import { registerTableRoutes } from "./modules/tables/tables.routes.js";
 import { systemClock, type Clock } from "./shared/clock.js";
 import { errorMiddleware } from "./shared/errors/error-middleware.js";
@@ -53,6 +54,7 @@ export function createApp({
   // register module routes here (US1–US4)
   registerAuthRoutes(ctx);
   registerTableRoutes(ctx);
+  registerScheduleRoutes(ctx);
   configureTestRoutes?.(ctx);
   registerDocsRoutes(ctx);
 
