@@ -120,28 +120,35 @@ describe("claimInterval", () => {
   });
 
   it("concurrent first claims on a missing document exercise the 11000 retry path", async () => {
-    // Non-overlapping ranges: every claim must succeed even though many race to create the document.
-    const tableId = new Types.ObjectId();
-    const key = { tableId, date: DATE };
+    // Non-overlapping ranges: every claim must succeed even though many race to create the
+    // document. Whether a given round hits the duplicate-key retry depends on timing, so keep
+    // trying fresh documents until one does; the retry path must be reached at least once.
     const spy = vi.spyOn(TableDay, "updateOne");
+    let retried = false;
     try {
-      const results = await Promise.all(
-        Array.from({ length: 12 }, (_v, i) =>
-          claimInterval(
-            TableDay,
-            key,
-            claim(key, `${String(8 + i).padStart(2, "0")}:00`, `${String(8 + i).padStart(2, "0")}:30`),
+      for (let round = 0; round < 30 && !retried; round++) {
+        const tableId = new Types.ObjectId();
+        const key = { tableId, date: DATE };
+        spy.mockClear();
+        const results = await Promise.all(
+          Array.from({ length: 12 }, (_v, i) =>
+            claimInterval(
+              TableDay,
+              key,
+              claim(key, `${String(8 + i).padStart(2, "0")}:00`, `${String(8 + i).padStart(2, "0")}:30`),
+            ),
           ),
-        ),
-      );
-      expect(results.every(Boolean)).toBe(true);
-      expect(await TableDay.countDocuments({ tableId, date: DATE })).toBe(1);
-      expect(await intervalsOf(tableId)).toHaveLength(12);
-      // at least one claim lost the creation race and retried without upsert
-      expect(spy.mock.calls.length).toBeGreaterThan(12);
+        );
+        expect(results.every(Boolean)).toBe(true);
+        expect(await TableDay.countDocuments({ tableId, date: DATE })).toBe(1);
+        expect(await intervalsOf(tableId)).toHaveLength(12);
+        // a claim that lost the creation race retried once without upsert
+        retried = spy.mock.calls.length > 12;
+      }
     } finally {
       spy.mockRestore();
     }
+    expect(retried, "no round reached the 11000 retry path").toBe(true);
   });
 
   describe("error handling (stubbed model)", () => {

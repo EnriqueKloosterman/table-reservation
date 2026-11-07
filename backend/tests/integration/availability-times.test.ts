@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { toMinutes, type DayName, type ServicePeriod } from "../../src/modules/schedule/schedule.domain.js";
 import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.model.js";
 import { Reservation } from "../../src/modules/reservations/reservation.model.js";
+import { kept } from "../helpers/keep-alive.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { expectError } from "../helpers/expect-error.js";
 import { reserveAs } from "../helpers/reserve-as.js";
@@ -40,7 +41,7 @@ beforeEach(async () => {
 });
 
 const times = (date: string, partySize: number | string, target: Express = app) =>
-  request(target).get("/availability/times").query({ date, partySize: String(partySize) });
+  kept(target).get("/availability/times").query({ date, partySize: String(partySize) });
 
 const tableId = (name: string) => new Types.ObjectId(tables.find((t) => t.name === name)!.id);
 
@@ -364,8 +365,7 @@ describe("SC-004 over HTTP: the list and the other operations agree for a full w
         }
 
         for (const time of grid(date)) {
-          const check = await request(app)
-            .get("/availability")
+          const check = await kept(app).get("/availability")
             .query({ date, time, partySize: String(partySize) });
           expect(check.body, `${date} ${time} party ${partySize}`).toMatchObject({
             available: listed.has(time),
@@ -386,8 +386,7 @@ describe("SC-004 over HTTP: the list and the other operations agree for a full w
   }, 180_000);
 
   it("the closed date lists nothing and refuses every time", async () => {
-    const check = await request(app)
-      .get("/availability")
+    const check = await kept(app).get("/availability")
       .query({ date: CLOSED_IN_WEEK, time: "12:00", partySize: "2" });
     expect(check.body).toMatchObject({ available: false, reason: "closed_date" });
     expect((await times(CLOSED_IN_WEEK, 2)).body).toMatchObject({ reason: "closed_date" });

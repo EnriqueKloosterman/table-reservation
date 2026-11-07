@@ -1,4 +1,5 @@
 import { z } from "../../shared/openapi/zod.js";
+import { AffectedReservationSchema } from "../reservations/affected.schemas.js";
 import { DATE_REGEX, isValidCalendarDate } from "./closed-dates.domain.js";
 
 export const CalendarDateSchema = z
@@ -46,6 +47,16 @@ export const ClosedDateSchema = z
   })
   .openapi("ClosedDate");
 
+export const CreatedClosedDateSchema = ClosedDateSchema.extend({
+  affectedReservations: z.array(AffectedReservationSchema).openapi({
+    description:
+      "Upcoming reservations (not yet ended) on the newly closed date. Always present, " +
+      "complete, ordered by start instant then id. Informational: reservations are never " +
+      "modified, moved or cancelled.",
+  }),
+}).openapi("CreatedClosedDate");
+
 export type CreateClosedDateInput = z.output<typeof CreateClosedDateSchema>;
 export type ListClosedDatesQuery = z.output<typeof ListClosedDatesQuerySchema>;
 export type ClosedDateDto = z.output<typeof ClosedDateSchema>;
+export type CreatedClosedDateDto = z.output<typeof CreatedClosedDateSchema>;

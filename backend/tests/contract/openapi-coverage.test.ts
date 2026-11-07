@@ -19,7 +19,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "GET /tables": [401, 500],
   "GET /tables/{id}": [401, 404, 500],
   "PATCH /tables/{id}": [400, 401, 404, 409, 500],
-  "DELETE /tables/{id}": [401, 404, 500],
+  "DELETE /tables/{id}": [401, 404, 409, 500],
   "GET /schedule": [401, 500],
   "PUT /schedule": [400, 401, 500],
   "POST /closed-dates": [400, 401, 409, 500],

@@ -1,10 +1,12 @@
 import type { Config } from "../../config/env.js";
 import type { Clock } from "../../shared/clock.js";
 import { conflict, notFound, validationError } from "../../shared/errors/app-error.js";
+import { affectedByClosedDate } from "../reservations/affected.js";
 import { ClosedDate } from "./closed-date.model.js";
 import { todayInTimeZone } from "./closed-dates.domain.js";
 import type {
   ClosedDateDto,
+  CreatedClosedDateDto,
   CreateClosedDateInput,
   ListClosedDatesQuery,
 } from "./closed-dates.schemas.js";
@@ -19,7 +21,7 @@ function restaurantToday({ config, clock }: Deps): string {
 export async function createClosedDate(
   { date, reason }: CreateClosedDateInput,
   deps: Deps,
-): Promise<ClosedDateDto> {
+): Promise<CreatedClosedDateDto> {
   if (date < restaurantToday(deps)) {
     throw validationError([{ field: "date", reason: "Date must be today or later" }]);
   }
@@ -29,7 +31,8 @@ export async function createClosedDate(
     if ((err as { code?: unknown }).code === 11000) throw conflict("This date is already closed");
     throw err;
   }
-  return { date, reason };
+  // Informational (FR-022), computed after the write: stored reservations are never changed.
+  return { date, reason, affectedReservations: await affectedByClosedDate(date, deps.clock.now()) };
 }
 
 export async function listClosedDates(

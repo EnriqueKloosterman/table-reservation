@@ -5,6 +5,7 @@ import {
   CREATE_CLOSED_DATE_EXAMPLE,
   ClosedDateParamsSchema,
   ClosedDateSchema,
+  CreatedClosedDateSchema,
   CreateClosedDateSchema,
   ListClosedDatesQuerySchema,
 } from "./closed-dates.schemas.js";
@@ -24,11 +25,18 @@ export function registerClosedDateRoutes(ctx: RouteContext): void {
     description:
       "Marks a calendar date as closed, with an optional reason. The date must exist in the " +
       "calendar and be today or later (a past date is 400, even if it is already closed). A " +
-      `date that is already closed is 409 CONFLICT. ${DATE_NOTE}`,
+      "date that is already closed is 409 CONFLICT. The date is closed even when upcoming " +
+      "reservations (not yet ended) exist on it: they are listed in `affectedReservations` " +
+      "(always present, complete, ordered by start instant then id) and are never changed. " +
+      DATE_NOTE,
     tags: TAGS,
     auth: true,
     request: { body: { schema: CreateClosedDateSchema, example: CREATE_CLOSED_DATE_EXAMPLE } },
-    success: { status: 201, description: "The closed date.", schema: ClosedDateSchema },
+    success: {
+      status: 201,
+      description: "The closed date and the upcoming reservations on it.",
+      schema: CreatedClosedDateSchema,
+    },
     errors: ["VALIDATION_ERROR", "CONFLICT"],
     handler: controller.create,
   });

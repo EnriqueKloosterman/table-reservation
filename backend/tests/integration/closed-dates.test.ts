@@ -39,7 +39,7 @@ describe("POST /closed-dates", () => {
   it("US4 #1: adds a closed date", async () => {
     const res = await api.add({ date: "2026-12-25", reason: "Christmas" });
     expect(res.status).toBe(201);
-    expect(res.body).toEqual({ date: "2026-12-25", reason: "Christmas" });
+    expect(res.body).toEqual({ date: "2026-12-25", reason: "Christmas", affectedReservations: [] });
     expect(res.headers.location).toBeUndefined();
   });
 

@@ -169,7 +169,7 @@ describe("PATCH /tables/:id", () => {
     const table = await create("T1");
     const res = await patch(table.id, { capacity: 6 });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ...table, capacity: 6 });
+    expect(res.body).toEqual({ ...table, capacity: 6, affectedReservations: [] });
     expect(((await get(table.id)).body as TableBody).capacity).toBe(6);
   });
 
@@ -190,7 +190,7 @@ describe("PATCH /tables/:id", () => {
     const table = await create("T1", 4);
     const res = await patch(table.id, { name: "T1", capacity: 4 });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(table);
+    expect(res.body).toEqual({ ...table, affectedReservations: [] });
   });
 
   it("refuses an empty body with field body", async () => {

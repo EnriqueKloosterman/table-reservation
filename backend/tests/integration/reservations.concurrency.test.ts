@@ -1,9 +1,9 @@
 import { Types } from "mongoose";
-import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.model.js";
 import { Reservation } from "../../src/modules/reservations/reservation.model.js";
 import { Table } from "../../src/modules/tables/table.model.js";
+import { kept } from "../helpers/keep-alive.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { expectError } from "../helpers/expect-error.js";
 import { reserveAs } from "../helpers/reserve-as.js";
@@ -252,7 +252,7 @@ describe("hook placement", () => {
   it("a request without hooks behaves the same (the hook is optional)", async () => {
     await seedRestaurant({ tables: [{ name: "T4", capacity: 4 }], schedule: { saturday: [DINNER] } });
     const plain = buildTestApp({ now: NOW });
-    expect((await request(plain).post("/reservations").send({
+    expect((await kept(plain).post("/reservations").send({
       date: SATURDAY, time: "20:00", partySize: 2, name: "Ana", email: "a@mail.com", phone: "600123456",
     })).status).toBe(201);
   });

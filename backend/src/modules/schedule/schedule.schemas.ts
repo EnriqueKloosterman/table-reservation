@@ -1,4 +1,5 @@
 import { z } from "../../shared/openapi/zod.js";
+import { AffectedReservationSchema } from "../reservations/affected.schemas.js";
 import { DAYS } from "./schedule.domain.js";
 
 export const DayNameSchema = z.enum(DAYS).openapi("DayName");
@@ -26,6 +27,18 @@ export const DayScheduleSchema = z
 export const WeeklyScheduleSchema = z
   .strictObject({ days: z.array(DayScheduleSchema) })
   .openapi("WeeklySchedule");
+
+export const ReplacedScheduleSchema = z
+  .object({
+    days: z.array(DayScheduleSchema),
+    affectedReservations: z.array(AffectedReservationSchema).openapi({
+      description:
+        "Upcoming reservations (not yet ended) no longer fully inside a service period of " +
+        "their weekday. Always present, complete, ordered by start instant then id. " +
+        "Informational: reservations are never modified, moved or cancelled.",
+    }),
+  })
+  .openapi("ReplacedSchedule");
 
 export const WEEKLY_SCHEDULE_EXAMPLE = {
   days: [

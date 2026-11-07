@@ -34,7 +34,7 @@ export function createTablesController({ clock }: Pick<RouteContext, "clock">): 
 
     update: async (_req, res) => {
       const { params, body } = res.locals.input;
-      res.json(await updateTable(params.id, body));
+      res.json(await updateTable(params.id, body, { clock }));
     },
 
     remove: async (_req, res) => {

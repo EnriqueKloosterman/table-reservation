@@ -51,8 +51,8 @@ describe("PUT /schedule", () => {
   it("US3 #2: stores the schedule and returns it normalized", async () => {
     const res = await putSchedule(standardWeek);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(standardWeek);
-    expect((await getSchedule()).body).toEqual(res.body);
+    expect(res.body).toEqual({ ...standardWeek, affectedReservations: [] });
+    expect((await getSchedule()).body).toEqual(standardWeek);
   });
 
   it("normalizes day order, period order, names and omitted days", async () => {
@@ -68,6 +68,7 @@ describe("PUT /schedule", () => {
         day,
         periods: day === "saturday" ? [LUNCH, DINNER] : day === "monday" ? [LUNCH] : [],
       })),
+      affectedReservations: [],
     });
   });
 
@@ -217,13 +218,13 @@ describe("PUT /schedule", () => {
   });
 
   it("US3 #7 / FR-024: a refused update leaves the stored schedule unchanged", async () => {
-    const first = (await putSchedule(standardWeek)).body as unknown;
+    expect((await putSchedule(standardWeek)).status).toBe(200);
     expectError(
       await putSchedule({ days: [{ day: "monday", periods: [LUNCH, p("Late", "14:00", "16:00")] }] }),
       400,
       "VALIDATION_ERROR",
     );
-    expect((await getSchedule()).body).toEqual(first);
+    expect((await getSchedule()).body).toEqual(standardWeek);
   });
 
   describe("body edge cases and check order", () => {
