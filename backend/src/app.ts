@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import type { Config } from "./config/env.js";
 import { isDatabaseUp as defaultIsDatabaseUp } from "./db/connection.js";
 import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
+import { registerAvailabilityRoutes } from "./modules/availability/availability.routes.js";
 import { registerClosedDateRoutes } from "./modules/closed-dates/closed-dates.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
 import { registerScheduleRoutes } from "./modules/schedule/schedule.routes.js";
@@ -57,6 +58,7 @@ export function createApp({
   registerTableRoutes(ctx);
   registerScheduleRoutes(ctx);
   registerClosedDateRoutes(ctx);
+  registerAvailabilityRoutes(ctx);
   configureTestRoutes?.(ctx);
   registerDocsRoutes(ctx);
 

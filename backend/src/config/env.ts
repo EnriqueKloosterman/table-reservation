@@ -19,6 +19,17 @@ function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+/** A whole number written with digits only, within [min, max]; refuses "", "1.5", "-1", "1e2". */
+function wholeNumber(min: number, max: number, defaultValue: number) {
+  const message = `Must be a whole number between ${min} and ${max}`;
+  return z
+    .string()
+    .regex(/^\d+$/, message)
+    .transform(Number)
+    .pipe(z.number().min(min, message).max(max, message))
+    .default(defaultValue);
+}
+
 const EnvSchema = z.object({
   MONGODB_URI: z.string().min(1),
   JWT_SECRET: z.string().min(32),
@@ -35,6 +46,11 @@ const EnvSchema = z.object({
     )
     .pipe(z.array(z.url())),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Booking rules (feature 002, research R1): minutes, except BOOKING_HORIZON_DAYS.
+  RESERVATION_DURATION_MINUTES: wholeNumber(15, 480, 120),
+  TIME_SLOT_INTERVAL_MINUTES: wholeNumber(5, 120, 15),
+  MIN_NOTICE_MINUTES: wholeNumber(0, 1440, 60),
+  BOOKING_HORIZON_DAYS: wholeNumber(1, 365, 60),
 });
 
 export type Config = z.output<typeof EnvSchema> & { jwtExpiresInSeconds: number };

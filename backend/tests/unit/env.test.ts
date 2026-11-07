@@ -43,6 +43,10 @@ describe("loadConfig", () => {
       RESTAURANT_TIME_ZONE: "UTC",
       CORS_ORIGINS: ["http://localhost:5173"],
       PORT: 3000,
+      RESERVATION_DURATION_MINUTES: 120,
+      TIME_SLOT_INTERVAL_MINUTES: 15,
+      MIN_NOTICE_MINUTES: 60,
+      BOOKING_HORIZON_DAYS: 60,
     });
   });
 
@@ -101,5 +105,86 @@ describe("loadConfig", () => {
         CORS_ORIGINS: "nope",
       }),
     ).toEqual(["CORS_ORIGINS", "JWT_SECRET", "MONGODB_URI", "PORT", "RESTAURANT_TIME_ZONE"]);
+  });
+});
+
+describe("loadConfig: booking rules (feature 002, research R1)", () => {
+  const keys = [
+    ["RESERVATION_DURATION_MINUTES", 120, 15, 480],
+    ["TIME_SLOT_INTERVAL_MINUTES", 15, 5, 120],
+    ["MIN_NOTICE_MINUTES", 60, 0, 1440],
+    ["BOOKING_HORIZON_DAYS", 60, 1, 365],
+  ] as const;
+
+  describe.each(keys)("%s", (key, defaultValue, min, max) => {
+    it(`defaults to ${defaultValue}`, () => {
+      expect(loadConfig({ ...base })[key]).toBe(defaultValue);
+    });
+
+    it("parses an integer string at both bounds as a number", () => {
+      expect(loadConfig({ ...base, [key]: String(min) })[key]).toBe(min);
+      expect(loadConfig({ ...base, [key]: String(max) })[key]).toBe(max);
+    });
+
+    it.each(["-1", "1.5", "abc", "", " ", "12abc", "1e2"])("refuses %j", (value) => {
+      expect(configErrorKeys({ ...base, [key]: value })).toEqual([key]);
+    });
+
+    it("refuses a value below the minimum", () => {
+      if (min === 0) return; // 0 is the minimum and is valid for this key
+      expect(configErrorKeys({ ...base, [key]: String(min - 1) })).toEqual([key]);
+    });
+
+    it("refuses a value above the maximum", () => {
+      expect(configErrorKeys({ ...base, [key]: String(max + 1) })).toEqual([key]);
+    });
+
+    it("reports a clear message for a non-numeric value", () => {
+      try {
+        loadConfig({ ...base, [key]: "nope" });
+      } catch (err) {
+        const issue = (err as ConfigError).issues.find((i) => i.key === key);
+        expect(issue?.message).toMatch(/whole number/i);
+        return;
+      }
+      throw new Error("loadConfig did not throw");
+    });
+  });
+
+  it("accepts MIN_NOTICE_MINUTES=0 (no minimum notice) but refuses 0 for the other keys", () => {
+    expect(loadConfig({ ...base, MIN_NOTICE_MINUTES: "0" }).MIN_NOTICE_MINUTES).toBe(0);
+    for (const key of [
+      "RESERVATION_DURATION_MINUTES",
+      "TIME_SLOT_INTERVAL_MINUTES",
+      "BOOKING_HORIZON_DAYS",
+    ]) {
+      expect(configErrorKeys({ ...base, [key]: "0" })).toEqual([key]);
+    }
+  });
+
+  it("refuses values larger than 1440 for the duration and the slot interval", () => {
+    expect(configErrorKeys({ ...base, TIME_SLOT_INTERVAL_MINUTES: "1441" })).toEqual([
+      "TIME_SLOT_INTERVAL_MINUTES",
+    ]);
+    expect(configErrorKeys({ ...base, RESERVATION_DURATION_MINUTES: "1441" })).toEqual([
+      "RESERVATION_DURATION_MINUTES",
+    ]);
+  });
+
+  it("lists every invalid booking key in one error", () => {
+    expect(
+      configErrorKeys({
+        ...base,
+        RESERVATION_DURATION_MINUTES: "x",
+        TIME_SLOT_INTERVAL_MINUTES: "0",
+        MIN_NOTICE_MINUTES: "-5",
+        BOOKING_HORIZON_DAYS: "999",
+      }),
+    ).toEqual([
+      "BOOKING_HORIZON_DAYS",
+      "MIN_NOTICE_MINUTES",
+      "RESERVATION_DURATION_MINUTES",
+      "TIME_SLOT_INTERVAL_MINUTES",
+    ]);
   });
 });

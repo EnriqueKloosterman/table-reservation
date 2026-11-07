@@ -4,6 +4,7 @@ export type ErrorCode =
   | "INVALID_CREDENTIALS"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "NO_AVAILABILITY"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -13,9 +14,26 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   INVALID_CREDENTIALS: 401,
   NOT_FOUND: 404,
   CONFLICT: 409,
+  NO_AVAILABILITY: 409,
   SERVICE_UNAVAILABLE: 503,
   INTERNAL_ERROR: 500,
 };
+
+/** Why a requested time cannot be booked, in precedence order (research R7). */
+export const AVAILABILITY_REASONS = [
+  "too_soon",
+  "too_far_ahead",
+  "closed_date",
+  "closed_day",
+  "outside_service_hours",
+  "party_too_large",
+  "no_table_free",
+] as const;
+export type AvailabilityReason = (typeof AVAILABILITY_REASONS)[number];
+
+/** Reasons carried by the new `CONFLICT` cases of feature 002. */
+export const CONFLICT_REASONS = ["duplicate_reservation", "table_has_upcoming_reservations"] as const;
+export type ConflictReason = (typeof CONFLICT_REASONS)[number];
 
 export type FieldError = { field: string; reason: string };
 
@@ -47,8 +65,12 @@ export function notFound(message: string): AppError {
   return new AppError("NOT_FOUND", message);
 }
 
-export function conflict(message: string): AppError {
-  return new AppError("CONFLICT", message);
+export function conflict(message: string, details?: { reason: ConflictReason }): AppError {
+  return new AppError("CONFLICT", message, details);
+}
+
+export function noAvailability(reason: AvailabilityReason): AppError {
+  return new AppError("NO_AVAILABILITY", "The requested time is not available", { reason });
 }
 
 export function serviceUnavailable(): AppError {

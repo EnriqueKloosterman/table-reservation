@@ -6,8 +6,17 @@ import type { RouteContext } from "../../src/shared/openapi/route.js";
 
 export const TEST_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
 
+/** Booking rules (feature 002); each defaults to the production default. */
+export type TestBookingRules = {
+  durationMinutes?: number;
+  slotIntervalMinutes?: number;
+  minNoticeMinutes?: number;
+  horizonDays?: number;
+};
+
 export type BuildTestAppOptions = {
   timeZone?: string;
+  bookingRules?: TestBookingRules;
   now?: Date | (() => Date);
   jwtSecret?: string;
   jwtExpiresIn?: string;
@@ -25,6 +34,10 @@ export function buildTestApp(options: BuildTestAppOptions = {}): Express {
     RESTAURANT_TIME_ZONE: options.timeZone ?? "UTC",
     CORS_ORIGINS: ["http://localhost:5173"],
     PORT: 3000,
+    RESERVATION_DURATION_MINUTES: options.bookingRules?.durationMinutes ?? 120,
+    TIME_SLOT_INTERVAL_MINUTES: options.bookingRules?.slotIntervalMinutes ?? 15,
+    MIN_NOTICE_MINUTES: options.bookingRules?.minNoticeMinutes ?? 60,
+    BOOKING_HORIZON_DAYS: options.bookingRules?.horizonDays ?? 60,
   };
 
   let clock: Clock | undefined;

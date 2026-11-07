@@ -35,12 +35,17 @@ beforeAll(async () => {
 });
 
 describe("SC-002: authentication coverage", () => {
-  it("the public operations are exactly health, login and the OpenAPI document", () => {
+  it("the public operations are exactly health, login, the OpenAPI document and the availability check", () => {
     const publicOps = operationsOf(doc)
       .filter((o) => (o.op.security ?? []).length === 0)
       .map((o) => o.key)
       .sort();
-    expect(publicOps).toEqual(["GET /health", "GET /openapi.json", "POST /auth/login"]);
+    expect(publicOps).toEqual([
+      "GET /availability",
+      "GET /health",
+      "GET /openapi.json",
+      "POST /auth/login",
+    ]);
   });
 
   it("there are secured operations to check", () => {

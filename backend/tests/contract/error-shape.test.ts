@@ -1,7 +1,9 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { conflict, noAvailability } from "../../src/shared/errors/app-error.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { expectError } from "../helpers/expect-error.js";
+import { fetchOpenApi } from "../helpers/openapi.js";
 import { loginAs } from "../helpers/login-as.js";
 import { seedStaff } from "../helpers/seed-staff.js";
 import { useTestDatabase } from "../setup/db.js";
@@ -9,10 +11,29 @@ import { useTestDatabase } from "../setup/db.js";
 // SC-003: every error category uses the standard body shape (checked by expectError).
 useTestDatabase();
 
+const AVAILABILITY_REASONS = [
+  "too_soon",
+  "too_far_ahead",
+  "closed_date",
+  "closed_day",
+  "outside_service_hours",
+  "party_too_large",
+  "no_table_free",
+] as const;
+
 const app = buildTestApp({
   configureTestRoutes: (ctx) => {
     ctx.router.get("/__boom", () => {
       throw new Error("secret driver message at /src/x.ts");
+    });
+    ctx.router.get("/__no-availability/:reason", (req) => {
+      throw noAvailability(req.params.reason as (typeof AVAILABILITY_REASONS)[number]);
+    });
+    ctx.router.get("/__conflict-reason", () => {
+      throw conflict("Duplicate", { reason: "duplicate_reservation" });
+    });
+    ctx.router.get("/__conflict-plain", () => {
+      throw conflict("Plain conflict");
     });
   },
 });
@@ -98,5 +119,47 @@ describe("SC-003: error shape", () => {
     expect(res.text).not.toContain("secret");
     expect(res.text).not.toContain("Error");
     expect(res.text).not.toContain("/src/");
+  });
+});
+
+describe("feature 002: NO_AVAILABILITY and conflict reasons", () => {
+  it.each(AVAILABILITY_REASONS)("NO_AVAILABILITY maps to 409 with details.reason = %s", async (reason) => {
+    const error = expectError(
+      await request(app).get(`/__no-availability/${reason}`),
+      409,
+      "NO_AVAILABILITY",
+    );
+    expect(error.details).toEqual({ reason });
+  });
+
+  it("a CONFLICT with details.reason keeps the standard body shape", async () => {
+    const error = expectError(await request(app).get("/__conflict-reason"), 409, "CONFLICT");
+    expect(error.details).toEqual({ reason: "duplicate_reservation" });
+  });
+
+  it("001 conflicts still carry no details", async () => {
+    const error = expectError(await request(app).get("/__conflict-plain"), 409, "CONFLICT");
+    expect(error.details).toBeUndefined();
+    expect(error).not.toHaveProperty("details");
+  });
+
+  it("ErrorResponse.details in /openapi.json is a oneOf that includes { reason }", async () => {
+    const doc = await fetchOpenApi(app);
+    const schema = doc.components.schemas?.["ErrorResponse"] as {
+      properties: { error: { properties: { code: { enum: string[] }; details: { oneOf: unknown[] } } } };
+    };
+    const { code, details } = schema.properties.error.properties;
+    expect(code.enum).toContain("NO_AVAILABILITY");
+    expect(Array.isArray(details.oneOf)).toBe(true);
+    // The `{ reason }` variants reference the AvailabilityReason / ConflictReason components.
+    const text = JSON.stringify(details.oneOf) + JSON.stringify(doc.components.schemas);
+    expect(text).toContain('"reason"');
+    for (const reason of AVAILABILITY_REASONS) expect(text).toContain(`"${reason}"`);
+    expect(text).toContain('"duplicate_reservation"');
+    expect(text).toContain('"table_has_upcoming_reservations"');
+    expect(text).toContain("database"); // the 001 variant is kept
+    const refs = JSON.stringify(details.oneOf);
+    expect(refs).toContain("#/components/schemas/AvailabilityReason");
+    expect(refs).toContain("#/components/schemas/ConflictReason");
   });
 });
