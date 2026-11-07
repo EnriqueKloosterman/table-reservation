@@ -47,14 +47,18 @@ export const ClosedDateSchema = z
   })
   .openapi("ClosedDate");
 
-export const CreatedClosedDateSchema = ClosedDateSchema.extend({
-  affectedReservations: z.array(AffectedReservationSchema).openapi({
-    description:
-      "Upcoming reservations (not yet ended) on the newly closed date. Always present, " +
-      "complete, ordered by start instant then id. Informational: reservations are never " +
-      "modified, moved or cancelled.",
-  }),
-}).openapi("CreatedClosedDate");
+// A flat object (not `ClosedDateSchema.extend`) so `/docs` shows one plain schema, not an `allOf`.
+export const CreatedClosedDateSchema = z
+  .object({
+    ...ClosedDateSchema.shape,
+    affectedReservations: z.array(AffectedReservationSchema).openapi({
+      description:
+        "Upcoming reservations (not yet ended) on the newly closed date. Always present, " +
+        "complete, ordered by start instant then id. Informational: reservations are never " +
+        "modified, moved or cancelled.",
+    }),
+  })
+  .openapi("CreatedClosedDate");
 
 export type CreateClosedDateInput = z.output<typeof CreateClosedDateSchema>;
 export type ListClosedDatesQuery = z.output<typeof ListClosedDatesQuerySchema>;

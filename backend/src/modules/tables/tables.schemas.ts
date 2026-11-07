@@ -34,15 +34,19 @@ export const TableSchema = z
   })
   .openapi("Table");
 
-export const UpdatedTableSchema = TableSchema.extend({
-  affectedReservations: z.array(AffectedReservationSchema).openapi({
-    description:
-      "Upcoming reservations (not yet ended) on this table whose party size exceeds the new " +
-      "capacity. Always present, complete, ordered by start instant then id; empty when " +
-      "`capacity` is not in the request. Informational: reservations are never modified, " +
-      "moved or cancelled.",
-  }),
-}).openapi("UpdatedTable");
+// A flat object (not `TableSchema.extend`) so `/docs` shows one plain schema, not an `allOf`.
+export const UpdatedTableSchema = z
+  .object({
+    ...TableSchema.shape,
+    affectedReservations: z.array(AffectedReservationSchema).openapi({
+      description:
+        "Upcoming reservations (not yet ended) on this table whose party size exceeds the new " +
+        "capacity. Always present, complete, ordered by start instant then id; empty when " +
+        "`capacity` is not in the request. Informational: reservations are never modified, " +
+        "moved or cancelled.",
+    }),
+  })
+  .openapi("UpdatedTable");
 
 export type CreateTableInput = z.output<typeof CreateTableSchema>;
 export type UpdateTableInput = z.output<typeof UpdateTableSchema>;

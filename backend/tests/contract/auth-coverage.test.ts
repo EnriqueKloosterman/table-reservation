@@ -91,3 +91,56 @@ describe("SC-002: authentication coverage", () => {
     });
   });
 });
+
+describe("feature 002: the new operations are public", () => {
+  const FINAL_PUBLIC = [
+    "GET /availability",
+    "GET /availability/times",
+    "GET /health",
+    "GET /openapi.json",
+    "POST /auth/login",
+    "POST /reservations",
+  ];
+
+  it("the public set is exactly the six operations", () => {
+    const publicOps = operationsOf(doc)
+      .filter((o) => (o.op.security ?? []).length === 0)
+      .map((o) => o.key)
+      .sort();
+    expect(publicOps).toEqual(FINAL_PUBLIC);
+    expect(publicOps).toHaveLength(6);
+  });
+
+  it("no staff operation became public", () => {
+    const staff = operationsOf(doc).filter((o) => !FINAL_PUBLIC.includes(o.key));
+    expect(staff.length).toBe(11);
+    for (const op of staff) expect((op.op.security ?? []).length, op.key).toBeGreaterThan(0);
+  });
+
+  it("the new operations never answer 401 without a token (validation errors answer 400)", async () => {
+    const responses = [
+      await request(app).get("/availability"),
+      await request(app).get("/availability/times"),
+      await request(app).post("/reservations").send({}),
+      await request(app).get("/availability").query({ date: "x", time: "y", partySize: "z" }),
+      await request(app).post("/reservations").set("Content-Type", "text/plain").send("hello"),
+    ];
+    for (const res of responses) {
+      expect(res.status).toBe(400);
+      expectError(res, 400, "VALIDATION_ERROR");
+    }
+  });
+
+  it("a bogus bearer token on a new operation is ignored, not rejected", async () => {
+    const res = await request(app).get("/availability").set("Authorization", "Bearer not-a-token");
+    expect(res.status).toBe(400); // still validation, never 401
+  });
+
+  it("every staff operation still answers 401 without a token", async () => {
+    const staff = operationsOf(doc).filter((o) => !FINAL_PUBLIC.includes(o.key));
+    for (const op of staff) {
+      const res = await call(op);
+      expect.soft(res.status, op.key).toBe(401);
+    }
+  });
+});

@@ -113,3 +113,230 @@ describe("SC-004: OpenAPI coverage", () => {
     expect(description).toContain("error.code");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Feature 002 (US5): the three public operations, the new error code and the changed responses.
+// ---------------------------------------------------------------------------------------------
+
+type Schema = {
+  $ref?: string;
+  type?: string;
+  enum?: string[];
+  description?: string;
+  properties?: Record<string, Schema>;
+  items?: Schema;
+  required?: string[];
+};
+
+const NEW_PUBLIC = ["GET /availability", "GET /availability/times", "POST /reservations"];
+const AVAILABILITY_REASONS = [
+  "too_soon",
+  "too_far_ahead",
+  "closed_date",
+  "closed_day",
+  "outside_service_hours",
+  "party_too_large",
+  "no_table_free",
+];
+
+const schemas = () => (doc.components.schemas ?? {}) as Record<string, Schema>;
+const byKey = (key: string) => operations.find((o) => o.key === key)!;
+const refName = (ref: string | undefined) => ref?.split("/").pop() ?? "";
+
+function containsKey(node: unknown, key: string): boolean {
+  if (Array.isArray(node)) return node.some((n) => containsKey(n, key));
+  if (node && typeof node === "object") {
+    return Object.entries(node).some(([k, v]) => k === key || containsKey(v, key));
+  }
+  return false;
+}
+
+describe("US5 / FR-024: documentation of the new public operations", () => {
+  it.each(NEW_PUBLIC)("%s is described and marked as public", (key) => {
+    const { op } = byKey(key);
+    expect(op.summary?.trim()).toBeTruthy();
+    expect(op.description).toMatch(/^Public — no sign-in required\./);
+    expect(op.security ?? []).toHaveLength(0);
+  });
+
+  it.each(["GET /availability", "GET /availability/times"])(
+    "%s has an example for every query parameter",
+    (key) => {
+      const params = (byKey(key).op as unknown as { parameters?: unknown[] }).parameters ?? [];
+      expect(params.length).toBeGreaterThan(0);
+      for (const p of params) {
+        expect(containsKey(p, "example") || containsKey(p, "examples"), JSON.stringify(p)).toBe(true);
+      }
+    },
+  );
+
+  it("POST /reservations has a body example that matches the contract", () => {
+    const media = byKey("POST /reservations").op.requestBody?.content?.["application/json"];
+    expect(media?.example).toEqual({
+      date: "2026-11-14",
+      time: "20:30",
+      partySize: 3,
+      name: "Ana García",
+      email: "ana@mail.com",
+      phone: "+34 600 123 456",
+    });
+  });
+
+  it("each new operation has its success schema and every error response of the contract", () => {
+    const expectedStatuses: Record<string, [string, number[]]> = {
+      "GET /availability": ["200", [400, 500]],
+      "GET /availability/times": ["200", [400, 500]],
+      "POST /reservations": ["201", [400, 409, 500]],
+    };
+    for (const [key, [success, errors]] of Object.entries(expectedStatuses)) {
+      const { responses } = byKey(key).op;
+      expect(Object.keys(responses).sort(), key).toEqual([success, ...errors.map(String)].sort());
+      expect(responses[success]!.content?.["application/json"]?.schema?.$ref, key).toBeTruthy();
+      for (const status of errors) {
+        expect(
+          responses[String(status)]!.content?.["application/json"]?.schema?.$ref,
+          `${key} ${status}`,
+        ).toBe(ERROR_REF);
+      }
+    }
+  });
+
+  it("the reason categories are described on every availability operation", () => {
+    for (const key of NEW_PUBLIC) {
+      const text = byKey(key).op.description ?? "";
+      for (const reason of AVAILABILITY_REASONS) {
+        expect(text, `${key} mentions ${reason}`).toContain(`\`${reason}\``);
+      }
+    }
+  });
+
+  it("GET /availability and POST /reservations list the reasons in precedence order", () => {
+    for (const key of ["GET /availability", "POST /reservations"]) {
+      const text = byKey(key).op.description ?? "";
+      let last = -1;
+      for (const reason of AVAILABILITY_REASONS) {
+        const at = text.indexOf(`\`${reason}\``);
+        expect(at, `${key} lists ${reason} in order`).toBeGreaterThan(last);
+        last = at;
+      }
+    }
+  });
+});
+
+describe("US5 / FR-025: NO_AVAILABILITY and the conflict reasons are described", () => {
+  it("ErrorResponse.code includes NO_AVAILABILITY", () => {
+    const error = schemas()["ErrorResponse"]!.properties!["error"]!;
+    expect(error.properties!["code"]!.enum).toContain("NO_AVAILABILITY");
+  });
+
+  it("the AvailabilityReason component lists the seven reasons in precedence order", () => {
+    const reason = schemas()["AvailabilityReason"]!;
+    expect(reason.enum).toEqual(AVAILABILITY_REASONS);
+    expect(reason.description).toBeTruthy();
+  });
+
+  it("the ConflictReason component lists the two conflict reasons", () => {
+    const reason = schemas()["ConflictReason"]!;
+    expect(reason.enum).toEqual(["duplicate_reservation", "table_has_upcoming_reservations"]);
+    expect(reason.description).toBeTruthy();
+  });
+
+  it("ErrorResponse.details is a oneOf with the field errors, the database variant and both reasons", () => {
+    const details = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["details"] as unknown as {
+      oneOf: unknown[];
+    };
+    expect(details.oneOf).toHaveLength(4);
+    const text = JSON.stringify(details.oneOf);
+    expect(text).toContain("#/components/schemas/AvailabilityReason");
+    expect(text).toContain("#/components/schemas/ConflictReason");
+    expect(text).toContain("database");
+  });
+
+  it("POST /reservations documents both 409 codes and their reasons", () => {
+    const text = byKey("POST /reservations").op.responses["409"]!.description ?? "";
+    expect(text).toContain("`NO_AVAILABILITY`");
+    expect(text).toContain("`CONFLICT`");
+    for (const reason of AVAILABILITY_REASONS) expect(text).toContain(`\`${reason}\``);
+    expect(text).toContain("duplicate_reservation");
+    const description = byKey("POST /reservations").op.description ?? "";
+    expect(description).toContain("duplicate_reservation");
+    expect(description).toContain("no_table_free");
+  });
+
+  it("DELETE /tables/{id} documents the 409 and drops the 'not enforced' note", () => {
+    const { op } = byKey("DELETE /tables/{id}");
+    expect(Object.keys(op.responses)).toContain("409");
+    expect(op.responses["409"]!.description).toContain("`CONFLICT`");
+    expect(op.responses["409"]!.description).toContain("table_has_upcoming_reservations");
+    expect(op.description).toContain("table_has_upcoming_reservations");
+    expect(op.description).not.toMatch(/not enforced/i);
+  });
+});
+
+describe("US5 / FR-024: the three changed responses include affectedReservations", () => {
+  const cases: [string, string, string][] = [
+    ["POST /closed-dates", "201", "CreatedClosedDate"],
+    ["PUT /schedule", "200", "ReplacedSchedule"],
+    ["PATCH /tables/{id}", "200", "UpdatedTable"],
+  ];
+
+  it.each(cases)("%s %s → %s", (key, status, component) => {
+    const ref = byKey(key).op.responses[status]!.content?.["application/json"]?.schema?.$ref;
+    expect(refName(ref)).toBe(component);
+    const schema = schemas()[component]!;
+    const affected = schema.properties!["affectedReservations"]!;
+    expect(affected.type).toBe("array");
+    expect(affected.description).toMatch(/Always present/);
+    expect(schema.required).toContain("affectedReservations");
+    expect(refName(affected.items?.$ref)).toBe("AffectedReservation");
+  });
+
+  it("an affected reservation shows id, date, start and end time, party size, guest name and table name", () => {
+    const item = schemas()["AffectedReservation"]!;
+    expect(Object.keys(item.properties!).sort()).toEqual([
+      "date",
+      "endTime",
+      "guestName",
+      "id",
+      "partySize",
+      "startTime",
+      "tableName",
+    ]);
+  });
+
+  it("the read operations keep their 001 shapes", () => {
+    const ref = (key: string) => byKey(key).op.responses["200"]!.content?.["application/json"]?.schema?.$ref;
+    expect(refName(ref("GET /schedule"))).toBe("WeeklySchedule");
+    expect(refName(ref("GET /tables/{id}"))).toBe("Table");
+  });
+});
+
+describe("US5 / FR-013: the secret code appears only in the creation response", () => {
+  it("only the ReservationConfirmation schema has a secretCode property", () => {
+    const holders = Object.entries(schemas())
+      .filter(([, s]) => s.properties && "secretCode" in s.properties)
+      .map(([name]) => name);
+    expect(holders).toEqual(["ReservationConfirmation"]);
+  });
+
+  it("that schema is referenced only by the 201 of POST /reservations", () => {
+    const users: string[] = [];
+    for (const { key, op } of operations) {
+      for (const [status, response] of Object.entries(op.responses)) {
+        const ref = response.content?.["application/json"]?.schema?.$ref;
+        if (refName(ref) === "ReservationConfirmation") users.push(`${key} ${status}`);
+      }
+      expect(JSON.stringify(op.requestBody ?? {}).includes("ReservationConfirmation"), `${key} request`).toBe(false);
+    }
+    expect(users).toEqual(["POST /reservations 201"]);
+    const others = Object.entries(schemas())
+      .filter(([name]) => name !== "ReservationConfirmation")
+      .filter(([, s]) => JSON.stringify(s).includes("ReservationConfirmation"));
+    expect(others).toEqual([]);
+  });
+
+  it("the property says it is shown only once", () => {
+    const secret = schemas()["ReservationConfirmation"]!.properties!["secretCode"]!;
+    expect(secret.description).toMatch(/only here/i);
+  });
+});
