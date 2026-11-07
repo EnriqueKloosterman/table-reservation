@@ -14,6 +14,9 @@
 
 - Q: Must the whole reservation (start plus duration) fit inside the service period, or only its start time? → A: The whole reservation; it must start at or after the period start and end at or before the period end (dinner 20:00–23:30 with 120 minutes → last bookable start 21:30).
 - Q: When a staff change contradicts an upcoming reservation (closed date added on its day, schedule change leaving it outside service hours, table capacity reduced below its party size), what happens? → A: The change is applied, the reservations stay untouched, and the response lists the affected upcoming reservations.
+- Q: Should the same guest be stopped from making two reservations that overlap in time (double submission, retry)? → A: Yes; a reservation whose email (normalized) already holds a confirmed reservation overlapping that time is refused with a "conflict" error (duplicate reservation) and nothing is stored.
+- Q: When the list of bookable times is empty on an open day, should a reason still be given? → A: Yes; an empty list always carries exactly one reason: whole-day reasons first (too soon for a past date, too far ahead, closed date, closed day, party too large), then "outside service hours" if no period is long enough for a reservation, then "too soon" if the minimum notice rules out every remaining time, otherwise "no table free".
+- Q: Are the default booking-window values acceptable (60 minutes minimum notice, up to 60 days ahead)? → A: Yes; both stay setup-time configuration with those defaults (FR-004).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -51,11 +54,13 @@ A customer, without signing in or creating an account, reserves by providing dat
 
 1. **Given** free tables of capacity 2, 4 and 6, **When** a customer reserves for a party of 3 at an available time, **Then** the reservation is created, the table of capacity 4 is assigned, and the response contains the reservation identifier, date, start and end time (restaurant-local), party size, guest name, email, phone, assigned table name, and a secret code.
 2. **Given** two free tables of capacity 4 named "T2" and "T10", **When** a customer reserves for a party of 4, **Then** "T2" is assigned (smallest suitable capacity first, then name in natural order).
-3. **Given** a reservation holds the only table that can seat 6 from 20:00 to 22:00, **When** another customer reserves for 6 at 21:00, **Then** the request is refused with a "no availability" error and reason "no table free"; a reservation for 6 starting at 22:00 succeeds.
+3. **Given** a reservation holds the only table that can seat 6 from 18:00 to 22:00, **When** another customer reserves for 6 at 21:00, **Then** the request is refused with a "no availability" error and reason "no table free"; a reservation for 6 starting at 22:00 succeeds.
 4. **Given** exactly one suitable free table and 20 simultaneous reservation requests for overlapping times, **When** they are processed, **Then** exactly one succeeds and the other 19 are refused with a "no availability" error and reason "no table free".
 5. **Given** a request where the date is closed, the time is outside service hours, or the party is too large, **When** it is submitted, **Then** the request is refused with a "no availability" error carrying the matching reason, and no reservation is stored.
 6. **Given** a missing or invalid name, email or phone number, **When** the request is submitted, **Then** it is refused with a "validation" error identifying each offending field, and no reservation is stored.
-7. **Given** a created reservation, **When** the secret code is inspected, **Then** it is long and random enough not to be guessable, it appears only in this response, and it is never returned again by any later operation.
+7. **Given** "ana@mail.com" holds a reservation 18:00–22:00 on a date, **When** a reservation for " Ana@Mail.com " is submitted for 21:00 that date (any party size), **Then** it is refused with a "conflict" error (duplicate reservation) and nothing is stored; a reservation for the same email starting at 22:00 succeeds.
+8. **Given** two simultaneous identical reservation requests with the same email, **When** they are processed, **Then** exactly one succeeds and the other is refused as a duplicate reservation, even if enough tables are free for both.
+9. **Given** a created reservation, **When** the secret code is inspected, **Then** it is long and random enough not to be guessable, it appears only in this response, and it is never returned again by any later operation.
 
 ---
 
@@ -72,8 +77,10 @@ A customer, without signing in, picks a date and party size and gets the list of
 1. **Given** a day with lunch 12:00–15:00 and free tables, **When** a customer lists times for a party of 2, **Then** the system returns the times at a fixed interval (default every 15 minutes) starting at the period start up to the last start that still ends by the period end (13:00 with the default 120 minutes), each one bookable, grouped under "Lunch".
 2. **Given** the only table for 6 is reserved 20:00–22:00, **When** a customer lists times for a party of 6, **Then** no time whose reservation would overlap 20:00–22:00 is listed.
 3. **Given** a closed date, a day with no service periods, or a party larger than every table, **When** a customer lists times, **Then** the list is empty and the reason is given ("closed date", "closed day" or "party too large").
-4. **Given** today's date, **When** a customer lists times, **Then** only times that respect the minimum notice are listed.
-5. **Given** any listed time, **When** the customer checks availability or reserves at that time with the same party size (and nothing changed in between), **Then** the answer is "available" and the reservation succeeds.
+4. **Given** an open day where every suitable table is reserved for every listed time, **When** a customer lists times, **Then** the list is empty with reason "no table free".
+5. **Given** today, late enough that the minimum notice rules out every remaining time, **When** a customer lists times, **Then** the list is empty with reason "too soon".
+6. **Given** today's date, **When** a customer lists times, **Then** only times that respect the minimum notice are listed.
+7. **Given** any listed time, **When** the customer checks availability or reserves at that time with the same party size (and nothing changed in between), **Then** the answer is "available" and the reservation succeeds.
 
 ---
 
@@ -120,7 +127,8 @@ A developer opens the interactive documentation, sees the new availability and r
 - Dates and times are restaurant-local. On a daylight-saving change day, a local time that does not exist (skipped hour) is "not available" with reason "outside service hours"; a local time that occurs twice is interpreted as its first occurrence.
 - "Now", "today", the minimum notice and the booking horizon are evaluated in the restaurant's time zone.
 - A requested time does not have to be one of the listed times; any time of day (hours and minutes) is accepted for the check and the reservation as long as all rules are met.
-- The same email or phone may hold several reservations, including at the same time; no duplicate detection is performed.
+- One email may hold several reservations as long as their time ranges do not overlap (same overlap rule as for tables); an overlapping one is a duplicate reservation. Phone numbers and names are not used for duplicate detection.
+- When a request is both a duplicate and unavailable, the duplicate reservation conflict is reported (duplicate check comes after validation and before availability).
 - Guest email is trimmed and lowercased; guest name and phone are trimmed before storing.
 - Unknown fields in the request body and unknown query parameters are refused with a "validation" error, as in feature 001.
 - If the storage fails after availability was confirmed but before the reservation is stored, no partial reservation remains and the customer gets an "internal error".
@@ -142,7 +150,7 @@ A developer opens the interactive documentation, sees the new availability and r
 **Availability lookup (public)**
 
 - **FR-007**: Anyone, without signing in, MUST be able to check availability for a date (`YYYY-MM-DD`), a time (`HH:mm`) and a party size, receiving a yes/no answer and, when no, the reason. Echoing the requested date, time and party size in the answer is required; the table that would be assigned is NOT revealed.
-- **FR-008**: Anyone, without signing in, MUST be able to list bookable start times for a date and party size. Times are generated at a fixed interval (setup-time configuration, default 15 minutes) from the start of each service period, grouped by service period name in chronological order; only times that pass every availability rule are listed. When the whole day is unavailable, the list is empty and the day-level reason is given.
+- **FR-008**: Anyone, without signing in, MUST be able to list bookable start times for a date and party size. Times are generated at a fixed interval (setup-time configuration, default 15 minutes) from the start of each service period, grouped by service period name in chronological order; only times that pass every availability rule are listed. A non-empty list carries no reason. An empty list MUST carry exactly one reason, chosen in this order: too soon (date before today), too far ahead, closed date, closed day, party too large; then "outside service hours" if no service period is long enough to hold a reservation; then "too soon" if the minimum notice rules out every remaining time; otherwise "no table free".
 
 **Guest reservations (public)**
 
@@ -152,6 +160,7 @@ A developer opens the interactive documentation, sees the new availability and r
 - **FR-012**: On success the system MUST return a confirmation containing: reservation identifier, status "confirmed", date, start and end time (restaurant-local), party size, guest name, email and phone, assigned table name, creation time, and a secret code.
 - **FR-013**: The secret code MUST be randomly generated, unguessable (at least 128 bits of randomness), returned only in the creation response, stored only in a non-reversible form, and never returned by any other operation.
 - **FR-014**: When no reservation is possible, the system MUST refuse with a "no availability" error whose details carry the reason category from FR-006, and MUST store nothing.
+- **FR-026**: The system MUST refuse a reservation whose guest email (trimmed and lowercased) already holds a confirmed reservation whose time range overlaps the requested one, with a "conflict" error identifying it as a duplicate reservation, and MUST store nothing. This MUST hold under simultaneous requests with the same email. (Numbered out of order to keep existing references stable.)
 - **FR-015**: No email or other notification is sent in this feature.
 - **FR-016**: Reservations are stored with their start and end as instants and are always presented as restaurant-local date and time.
 
@@ -199,7 +208,7 @@ A developer opens the interactive documentation, sees the new availability and r
 - The duration already includes table turnover; there is no extra buffer between consecutive reservations on a table.
 - Service periods do not cross midnight (feature 001), so a reservation never spans two dates.
 - Table capacity is the maximum number of guests; there is no minimum party size per table, so a party of 2 may be seated at a table for 6 if nothing smaller is free. Combining tables is out of scope.
-- Customers identify themselves only by the contact details on the reservation; there are no customer accounts, email verification or duplicate detection.
+- Customers identify themselves only by the contact details on the reservation; there are no customer accounts or email verification. Duplicate detection uses the email only (FR-026).
 - Every reservation is "confirmed" on creation; other statuses (for example cancelled) arrive with cancellation in a later feature.
 - Request rate limiting and abuse protection on public operations are out of scope.
 - Out of scope: confirmation or any other email, cancellation by link or by staff, the staff view of the day's reservations, modifying a reservation, customer accounts, email verification, payments or deposits, waiting list, combining tables, partial-day closures, reminders, sign-in or request rate limiting, and any user interface.
