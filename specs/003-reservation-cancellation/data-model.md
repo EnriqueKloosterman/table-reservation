@@ -46,8 +46,8 @@ confirmed ──(claim: status=confirmed AND startAt > now)──▶ cancelled  
 Transient, in memory only. No collection. Failures are log lines:
 
 ```json
-{"event":"email_failed","kind":"confirmation|cancellation","reservationId":"<id>","reason":"<error.code ?? error.name>"}
-{"event":"email_skipped","kind":"confirmation|cancellation","reservationId":"<id>"}
+{"event":"email_failed","kind":"confirmation|cancellation","reservationId":"<id>","reason":"<error.code ?? error.name>","at":"<ISO-8601 UTC>"}
+{"event":"email_skipped","kind":"confirmation|cancellation","reservationId":"<id>","at":"<ISO-8601 UTC>"}
 ```
 
 Never present in a log line: the secret code, the full or partial guest address, the SMTP
