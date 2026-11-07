@@ -42,6 +42,7 @@ describe("SC-002: authentication coverage", () => {
       .sort();
     expect(publicOps).toEqual([
       "GET /availability",
+      "GET /availability/times",
       "GET /health",
       "GET /openapi.json",
       "POST /auth/login",

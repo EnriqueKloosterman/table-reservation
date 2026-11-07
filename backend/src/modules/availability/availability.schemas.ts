@@ -49,5 +49,36 @@ export const AvailabilityResponseSchema = z
     example: { date: "2026-11-14", time: "21:45", partySize: 4, available: false, reason: "outside_service_hours" },
   });
 
+export const TimesQuerySchema = z.strictObject({
+  date: dateParam,
+  partySize: PartySizeQuery,
+});
+
+export const TimesResponseSchema = z
+  .object({
+    date: z.string().openapi({ example: "2026-11-14" }),
+    partySize: z.number().int().openapi({ example: 2 }),
+    periods: z
+      .array(
+        z.object({
+          name: z.string().openapi({ example: "Lunch" }),
+          times: z.array(z.string()).openapi({ example: ["12:00", "12:15", "12:30", "12:45", "13:00"] }),
+        }),
+      )
+      .openapi({
+        description:
+          "Bookable start times (restaurant-local HH:mm) grouped by service period, in " +
+          "chronological order. Periods without a bookable time are omitted.",
+      }),
+    reason: AvailabilityReasonSchema.optional().openapi({
+      description: "Present if and only if `periods` is empty.",
+    }),
+  })
+  .openapi("TimesResponse", {
+    example: { date: "2026-12-24", partySize: 2, periods: [], reason: "closed_date" },
+  });
+
 export type AvailabilityQuery = z.output<typeof AvailabilityQuerySchema>;
 export type AvailabilityResponse = z.output<typeof AvailabilityResponseSchema>;
+export type TimesQuery = z.output<typeof TimesQuerySchema>;
+export type TimesResponse = z.output<typeof TimesResponseSchema>;

@@ -27,6 +27,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "DELETE /closed-dates/{date}": [400, 401, 404, 500],
   "GET /openapi.json": [500],
   "GET /availability": [400, 500],
+  "GET /availability/times": [400, 500],
   "POST /reservations": [400, 409, 500],
 };
 
@@ -61,10 +62,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 16 operations", () => {
+  it("documents exactly the mounted routes, 17 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(16);
+    expect(documented).toHaveLength(17);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
