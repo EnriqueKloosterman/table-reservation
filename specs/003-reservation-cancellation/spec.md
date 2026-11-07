@@ -113,6 +113,13 @@ A future customer interface or integrator can find the new operations in the int
 - Cancelling a reservation whose confirmation email was never delivered works the same; it only needs the code.
 - A staff cancellation after a guest cancellation of the same reservation gets "already cancelled" and sends no second email.
 
+## Clarifications
+
+### Session 2026-11-07
+
+- Q: How should the guest present the secret code to the public cancellation operation? → A: In the request body (POST), never in the URL.
+- Q: Should the cancellation email say who cancelled? → A: Yes; two wordings, "You cancelled…" for guest cancellation and "The restaurant cancelled…" for staff cancellation.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -127,7 +134,7 @@ A future customer interface or integrator can find the new operations in the int
 
 **Guest cancellation (public)**
 
-- **FR-006**: Anyone, without signing in, MUST be able to cancel a reservation by presenting its secret code. No other identification (name, email, phone, identifier) is accepted or needed.
+- **FR-006**: Anyone, without signing in, MUST be able to cancel a reservation by presenting its secret code. No other identification (name, email, phone, identifier) is accepted or needed. The code MUST be sent in the request body of a POST operation and MUST NOT appear in the URL (path or query), so it does not end up in logs or browser history; a request carrying it in the URL is not a supported form.
 - **FR-007**: Cancelling MUST change the reservation status from "confirmed" to "cancelled" and record the moment of cancellation and who cancelled (the guest or staff).
 - **FR-008**: Cancelling MUST release the reservation's table and the guest's time slot immediately and completely, so the same time becomes bookable by others and the same guest email can book again, including an overlapping time. A cancellation that cannot release everything MUST NOT report success.
 - **FR-009**: A reservation can be cancelled only before it starts: a reservation whose start time has been reached or passed (including one that has ended) MUST be refused with a clear "cannot be cancelled" outcome and remain unchanged. No minimum notice is required for cancelling.
@@ -138,7 +145,7 @@ A future customer interface or integrator can find the new operations in the int
 **Staff cancellation (sign-in required)**
 
 - **FR-013**: Signed-in staff MUST be able to cancel any upcoming reservation (not started, confirmed) by its identifier, with the same release (FR-008), the same refusals for started/ended (FR-009) and already cancelled (FR-010) reservations, and the same email (FR-014) as guest cancellation. An unknown identifier gives "not found". Staff cancellation requires the staff sign-in of feature 001 and is refused with the standard authentication errors otherwise, before any change.
-- **FR-014**: When a reservation is cancelled by the guest or by staff, the system MUST send a cancellation confirmation email to the guest's address, with the same failure rule as FR-003 and FR-004: the cancellation is never undone or delayed by a failed or slow email.
+- **FR-014**: When a reservation is cancelled by the guest or by staff, the system MUST send a cancellation confirmation email to the guest's address, worded according to who cancelled ("You cancelled…" for the guest, "The restaurant cancelled…" for staff), with the same failure rule as FR-003 and FR-004: the cancellation is never undone or delayed by a failed or slow email.
 - **FR-015**: Concurrent cancellations of the same reservation (any mix of guest and staff) MUST result in exactly one successful cancellation and exactly one cancellation email; the others get the "already cancelled" answer.
 - **FR-016**: The staff operation MUST complete the feature 002 workflow: after staff cancel a reservation listed as affected by a configuration change, later configuration changes MUST NOT list it. Configuration changes themselves still never cancel reservations automatically.
 
