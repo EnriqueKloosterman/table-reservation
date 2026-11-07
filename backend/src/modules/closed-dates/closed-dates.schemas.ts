@@ -1,5 +1,5 @@
 import { z } from "../../shared/openapi/zod.js";
-import { isValidCalendarDate } from "./closed-dates.domain.js";
+import { DATE_REGEX, isValidCalendarDate } from "./closed-dates.domain.js";
 
 export const CalendarDateSchema = z
   .string()
@@ -7,6 +7,7 @@ export const CalendarDateSchema = z
   .openapi("CalendarDate", {
     description: "Restaurant-local calendar date, exactly YYYY-MM-DD.",
     format: "date",
+    pattern: DATE_REGEX.source,
     example: "2026-12-25",
   });
 
@@ -39,7 +40,7 @@ export const ListClosedDatesQuerySchema = z.strictObject({
 export const ClosedDateParamsSchema = z.strictObject({ date: CalendarDateSchema });
 
 export const ClosedDateSchema = z
-  .strictObject({
+  .object({
     date: z.string().openapi({ example: "2026-12-25" }),
     reason: z.string().nullable().openapi({ example: "Christmas" }),
   })

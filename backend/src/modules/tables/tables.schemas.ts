@@ -26,7 +26,7 @@ export const UpdateTableSchema = z
 export const UPDATE_TABLE_EXAMPLE = { capacity: 6 };
 
 export const TableSchema = z
-  .strictObject({
+  .object({
     id: z.string().openapi({ example: "6740c0ffee0123456789abcd" }),
     name: z.string().openapi({ example: "T1" }),
     capacity: z.number().int().openapi({ example: 4 }),

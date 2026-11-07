@@ -2,7 +2,12 @@ import { z } from "../../shared/openapi/zod.js";
 
 export const LoginRequestSchema = z
   .strictObject({
-    email: z.string().trim().toLowerCase().pipe(z.email()),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(z.email())
+      .openapi({ description: "Trimmed and lowercased, then checked as an email address." }),
     password: z.string().min(1).max(1024),
   })
   .openapi("LoginRequest");
@@ -10,14 +15,14 @@ export const LoginRequestSchema = z
 export const LOGIN_EXAMPLE = { email: " Ana@Resto.com ", password: "correct horse battery" };
 
 export const StaffProfileSchema = z
-  .strictObject({
+  .object({
     name: z.string().openapi({ example: "Ana" }),
     email: z.string().openapi({ example: "ana@resto.com" }),
   })
   .openapi("StaffProfile");
 
 export const LoginResponseSchema = z
-  .strictObject({
+  .object({
     token: z.string().openapi({ description: "HS256 JWT. Send as `Authorization: Bearer <token>`." }),
     expiresAt: z.iso.datetime().openapi({
       description: "UTC instant when the token expires (equals the token's `exp` claim).",

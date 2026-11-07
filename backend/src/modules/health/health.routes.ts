@@ -3,7 +3,7 @@ import { z } from "../../shared/openapi/zod.js";
 import { createHealthController } from "./health.controller.js";
 
 const HealthSchema = z
-  .strictObject({ status: z.literal("ok"), database: z.literal("up") })
+  .object({ status: z.literal("ok"), database: z.literal("up") })
   .openapi("Health");
 
 export function registerHealthRoutes(ctx: RouteContext, isDatabaseUp: () => boolean): void {
