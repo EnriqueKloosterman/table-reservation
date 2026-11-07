@@ -16,12 +16,20 @@ export function isValidPhone(phone: string): boolean {
   );
 }
 
+const NAME_MESSAGE = "Must be 1-100 characters after trimming";
+
+// Zod counts code points, but the contract (and Mongoose) count UTF-16 code units, which
+// differ for emoji and other astral characters; `.length` is the unit the contract names.
 const name = z
   .string()
   .trim()
-  .min(1)
-  .max(100)
-  .openapi({ description: "Guest name, 1-100 characters after trimming.", example: "Ana García" });
+  .refine((value) => value.length >= 1 && value.length <= 100, NAME_MESSAGE)
+  .openapi({
+    description: "Guest name, 1-100 characters (UTF-16 code units) after trimming.",
+    example: "Ana García",
+    minLength: 1,
+    maxLength: 100,
+  });
 
 const email = z
   .string()

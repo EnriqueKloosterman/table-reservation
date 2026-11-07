@@ -1,10 +1,8 @@
 import type { Types } from "mongoose";
-import { dayOfWeek } from "../../shared/time/local-time.js";
-import type { DaySchedule, ServicePeriod } from "../schedule/schedule.domain.js";
+import type { DaySchedule } from "../schedule/schedule.domain.js";
 import { Table } from "../tables/table.model.js";
-import { isInsideSchedule } from "./affected.domain.js";
-import { Reservation } from "./reservation.model.js";
 import type { AffectedReservation } from "./affected.schemas.js";
+import { Reservation } from "./reservation.model.js";
 
 /**
  * Reports for staff changes that may contradict upcoming reservations (FR-022, research R11).
@@ -50,11 +48,50 @@ export async function affectedByClosedDate(date: string, now: Date): Promise<Aff
 
 /** Upcoming reservations no longer fully inside a service period of their weekday. */
 export async function affectedBySchedule(days: DaySchedule[], now: Date): Promise<AffectedReservation[]> {
-  const periodsByDay = new Map<string, ServicePeriod[]>(days.map((d) => [d.day, d.periods]));
-  const upcoming = await Reservation.find({ endAt: { $gt: now } }).lean();
-  return toReport(
-    upcoming.filter((r) => !isInsideSchedule(r, periodsByDay.get(dayOfWeek(r.date)) ?? [])),
-  );
+  // The rule is `isInsideSchedule` (some period of the reservation's weekday has
+  // start <= startTime and endTime <= end). It is evaluated inside MongoDB so that, with
+  // thousands of upcoming reservations, only the affected ones travel to the application
+  // (SC-006). HH:mm strings are zero-padded, so comparing them as text equals comparing
+  // minutes; the equivalence is checked by affected-schedule.equivalence.test.ts.
+  const periodsOfWeekday = {
+    $switch: {
+      branches: days.map((d, index) => ({
+        case: { $eq: ["$$weekday", index + 1] }, // $isoDayOfWeek: 1 = Monday … 7 = Sunday
+        then: d.periods.map(({ start, end }) => ({ start, end })),
+      })),
+      default: [],
+    },
+  };
+  const isInside = {
+    $anyElementTrue: {
+      $map: {
+        input: periodsOfWeekday,
+        as: "period",
+        in: {
+          $and: [
+            { $lte: ["$$period.start", "$startTime"] },
+            { $lte: ["$endTime", "$$period.end"] },
+          ],
+        },
+      },
+    },
+  };
+  const affected = await Reservation.aggregate<{ _id: Types.ObjectId }>([
+    { $match: { endAt: { $gt: now } } },
+    {
+      $match: {
+        $expr: {
+          $let: {
+            vars: { weekday: { $isoDayOfWeek: { $dateFromString: { dateString: "$date" } } } },
+            in: { $not: [isInside] },
+          },
+        },
+      },
+    },
+    { $project: { _id: 1 } },
+  ]);
+  if (affected.length === 0) return [];
+  return toReport(await Reservation.find({ _id: { $in: affected.map((r) => r._id) } }).lean());
 }
 
 /** Upcoming reservations on a table whose party no longer fits its new capacity. */

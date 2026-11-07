@@ -146,3 +146,24 @@ describe("CreateReservationBody", () => {
     ]);
   });
 });
+
+describe("CreateReservationBody: lengths are UTF-16 code units (contract §POST /reservations, CHK010)", () => {
+  it("counts an emoji as two units: 50 emoji fit a 100-unit name, 51 do not", () => {
+    expect(parse({ name: "😀".repeat(50) }).success).toBe(true);
+    expect(fieldsOf({ name: "😀".repeat(51) })).toEqual(["name"]);
+  });
+
+  it("counts accented characters as one unit", () => {
+    expect(parse({ name: "é".repeat(100) }).success).toBe(true);
+    expect(fieldsOf({ name: "é".repeat(101) })).toEqual(["name"]);
+  });
+});
+
+describe("the documented request example", () => {
+  it("passes the body schema unchanged", async () => {
+    const { CREATE_RESERVATION_EXAMPLE } = await import("../../src/modules/reservations/reservations.schemas.js");
+    const result = CreateReservationBodySchema.safeParse(CREATE_RESERVATION_EXAMPLE);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(CREATE_RESERVATION_EXAMPLE);
+  });
+});

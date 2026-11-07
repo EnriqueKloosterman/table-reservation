@@ -314,3 +314,58 @@ describe("POST /reservations: public and test hooks", () => {
     expect(server).not.toMatch(/afterClaim|testHooks|reservationOps/);
   });
 });
+
+describe("POST /reservations: request-level errors (contract §Check order, CHK012)", () => {
+  it("malformed JSON → 400 VALIDATION_ERROR on field body, nothing stored", async () => {
+    const res = await request(app)
+      .post("/reservations")
+      .set("Content-Type", "application/json")
+      .send('{"date":');
+    expect(expectError(res, 400, "VALIDATION_ERROR").details).toEqual([{ field: "body", reason: "Malformed JSON" }]);
+    await nothingStored();
+  });
+
+  it("a body over 100 kB → 400 VALIDATION_ERROR, nothing stored", async () => {
+    const res = await request(app)
+      .post("/reservations")
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ ...{ date: SATURDAY }, name: "x".repeat(110_000) }));
+    expect(expectError(res, 400, "VALIDATION_ERROR").details).toEqual([
+      { field: "body", reason: "Request body exceeds 100 kB" },
+    ]);
+    await nothingStored();
+  });
+
+  it("a JSON array or null body → 400 VALIDATION_ERROR", async () => {
+    for (const body of ["[]", "null", '"text"']) {
+      const res = await request(app).post("/reservations").set("Content-Type", "application/json").send(body);
+      expectError(res, 400, "VALIDATION_ERROR");
+    }
+    await nothingStored();
+  });
+});
+
+describe("a requested time need not be one of the listed times (spec §Edge Cases)", () => {
+  it("any hour and minute is accepted by the check and by the reservation", async () => {
+    const check = await request(app).get("/availability").query({ date: SATURDAY, time: "20:07", partySize: "2" });
+    expect(check.body).toMatchObject({ available: true });
+    const res = await reserve({ time: "20:07" });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ startTime: "20:07", endTime: "22:07" });
+  });
+});
+
+describe("POST /reservations: a name longer than 100 UTF-16 units is a validation error, never a 500", () => {
+  it("51 emoji (102 units) → 400 on field name, nothing stored", async () => {
+    const res = await reserve({ name: "😀".repeat(51) });
+    const error = expectError(res, 400, "VALIDATION_ERROR");
+    expect((error.details as { field: string }[]).map((d) => d.field)).toEqual(["name"]);
+    await nothingStored();
+  });
+
+  it("50 emoji (100 units) are stored and echoed intact", async () => {
+    const res = await reserve({ name: "😀".repeat(50) });
+    expect(res.status).toBe(201);
+    expect((res.body as { guest: { name: string } }).guest.name).toBe("😀".repeat(50));
+  });
+});

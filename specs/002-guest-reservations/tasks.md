@@ -204,12 +204,12 @@ description: "Task list for feature 002-guest-reservations (Availability Lookup 
 
 **Purpose**: Performance proof, documentation, final validation.
 
-- [ ] T064 [P] Extend `backend/tests/integration/performance.test.ts` (SC-006): seed 100 tables, a weekly schedule, 500 closed dates and 10,000 reservations (with their `TableDay`/`GuestDay` intervals) directly through the models; 10 concurrent requests per new operation (`GET /availability`, `GET /availability/times`, `POST /reservations`); p95 < 1 s; prove it can fail by temporarily setting `P95_LIMIT_MS = 0`, observe the failure, revert
-- [ ] T065 [P] Update `backend/README.md`: the four booking-rule keys with defaults, the three public operations, and a "Known debt" section covering orphan intervals (when they arise, the `mongosh` query to list `TableDay`/`GuestDay` intervals whose `reservationId` has no `Reservation`, and the manual removal procedure; FR-031), a table removal whose revert failed (FR-029), retries without an idempotency key, and no rate limiting on public operations
-- [ ] T066 [P] Update `backend/.env.example` check and `specs/002-guest-reservations/quickstart.md` if the final behavior differs from it (keys, example requests, expected outputs)
-- [ ] T067 Run the full validation in `backend/`: `npm run typecheck`, `npm run lint`, `npm test`; fix anything failing
-- [ ] T068 Run the `quickstart.md` validation end to end against a running backend (public availability, times, reservation, removal refusal, affected report) and record the outcome in the task notes
-- [ ] T069 Walk the checklists `specs/002-guest-reservations/checklists/{requirements,api}.md` (`concurrency.md` is out of scope by decision of the project owner) against the implementation and note any requirement that is not covered by a test
+- [X] T064 [P] Extend `backend/tests/integration/performance.test.ts` (SC-006): seed 100 tables, a weekly schedule, 500 closed dates and 10,000 reservations (with their `TableDay`/`GuestDay` intervals) directly through the models; 10 concurrent requests per new operation (`GET /availability`, `GET /availability/times`, `POST /reservations`); p95 < 1 s; prove it can fail by temporarily setting `P95_LIMIT_MS = 0`, observe the failure, revert
+- [X] T065 [P] Update `backend/README.md`: the four booking-rule keys with defaults, the three public operations, and a "Known debt" section covering orphan intervals (when they arise, the `mongosh` query to list `TableDay`/`GuestDay` intervals whose `reservationId` has no `Reservation`, and the manual removal procedure; FR-031), a table removal whose revert failed (FR-029), retries without an idempotency key, and no rate limiting on public operations
+- [X] T066 [P] Update `backend/.env.example` check and `specs/002-guest-reservations/quickstart.md` if the final behavior differs from it (keys, example requests, expected outputs)
+- [X] T067 Run the full validation in `backend/`: `npm run typecheck`, `npm run lint`, `npm test`; fix anything failing
+- [X] T068 Run the `quickstart.md` validation end to end against a running backend (public availability, times, reservation, removal refusal, affected report) and record the outcome in the task notes
+- [X] T069 Walk the checklists `specs/002-guest-reservations/checklists/{requirements,api}.md` (`concurrency.md` is out of scope by decision of the project owner) against the implementation and note any requirement that is not covered by a test
 
 ---
 
@@ -291,3 +291,53 @@ Task: "Create backend/tests/integration/reservations.failures.test.ts"
 - [Story] label maps each task to its user story for traceability; Setup, Foundational and Polish tasks carry no label.
 - Commit after each task or logical group; stop at any checkpoint to validate a story independently.
 - Avoid: vague tasks, two tasks editing the same file in parallel (`app.ts`, `availability.service.ts`, `availability.routes.ts` are touched by several stories and are therefore sequential), calling `Date.now()` in domain or service code.
+
+## Implementation notes (recorded during `/speckit-implement`)
+
+### T068: quickstart run (2026-11-07)
+
+Ran against a live backend (`tsx src/server.ts`, port 3056) and a throwaway database
+(`table-reservation-002-qs`, dropped afterwards). All 23 checks passed:
+
+- Fail-fast: `RESERVATION_DURATION_MINUTES=10` exits with code 1 naming the key; several invalid
+  booking keys are all listed in one message.
+- Staff set-up (tables T2/T4/T6, Saturday Lunch + Dinner, an upcoming closed date) answered as in
+  the contract; `PUT /schedule` already returned `affectedReservations: []`.
+- Without a token: times (Lunch 12:00…13:00, Dinner 20:00…21:30), `21:45` → `outside_service_hours`,
+  reservation for 3 at 20:30 → `201` on `T4`, `endTime` 22:30, 43-character `secretCode`,
+  `Cache-Control: no-store`, no `Location`; repeating it → `409 CONFLICT` `duplicate_reservation`;
+  party 8 → `409 NO_AVAILABILITY` `party_too_large`.
+- Staff: `DELETE` the reserved table → `409` `table_has_upcoming_reservations`; `PATCH` capacity 2 →
+  `200` listing the reservation; closing that Saturday → `201` listing it, then `closed_date`.
+- Database: `secretCodeHash` is 64 hex characters and no plain code is stored.
+
+### T069: checklist walk (requirements.md and api.md)
+
+`concurrency.md` was left out of scope by decision of the project owner.
+
+Every requirement of `requirements.md` and `api.md` maps to implementation and to at least one
+automated test, except the items below.
+
+Gaps found and closed with tests (and one fix):
+
+- CHK010 (lengths are UTF-16 code units): **a defect.** Zod counts code points, so a 51-emoji name
+  (102 units) passed validation, then failed Mongoose's `maxlength` and answered `500` after the
+  holds were taken. Fixed in `reservations.schemas.ts` (name length checked with `.length`);
+  tests: `reservations.schemas.test.ts` and `reservations.test.ts` (400 on `name`, 50 emoji stored).
+- CHK012 (request-level errors on the new operation): added tests for malformed JSON, a body over
+  100 kB and non-object bodies on `POST /reservations`.
+- CHK038 (examples agree with the rules): added a test that the documented request example passes the
+  body schema.
+- Edge case "a requested time need not be a listed time": added a test (`20:07` is accepted by the
+  check and by the reservation, `endTime` 22:07).
+- FR-031 (documented orphan listing and cleanup): `orphan-holds.test.ts` runs the README's
+  aggregation and `$pull` against seeded orphans.
+
+Covered by the quickstart run rather than an automated test: SC-001 (a customer reaches a confirmed
+reservation in 2 requests: list times, reserve).
+
+SC-006 finding: `PUT /schedule` first read every upcoming reservation to build its report (p95 about
+0.7 s with 10,000, and 1.04 s once under full-suite load). The check now runs inside MongoDB (an
+aggregation that returns only the affected ids; p95 about 0.25 s). `isInsideSchedule` stays the rule
+and is the oracle of `affected-schedule.equivalence.test.ts`, which proves the database expression agrees
+with it. The cost still grows linearly with upcoming reservations (README, Known debt).

@@ -41,9 +41,11 @@ Expected: all green, including:
 - `tests/unit/availability.domain.test.ts` — one case per reason, precedence, grid, SC-004
   invariant.
 - `tests/integration/reservations.concurrency.test.ts` — SC-002 (20 × 50 rounds), same-email
-  race, candidate fallback, table-removal race.
+  race, candidate fallback; `reservation-protection.races.test.ts` — table-removal race in both
+  orderings, removal revert, staff changes racing a reservation.
 - `tests/contract/*` — 17 operations, 6 public, standard error shape for the new codes.
 - `tests/integration/performance.test.ts` — SC-006 with 10,000 seeded reservations.
+- `tests/integration/orphan-holds.test.ts` — the `mongosh` listing and cleanup from the README.
 
 ### 2. End to end through `/docs` (SC-001, US5)
 
@@ -69,6 +71,9 @@ Expected: all green, including:
    - `POST /closed-dates` for that Saturday → `201` listing it; `GET /availability` for that
      date → `closed_date`.
 
+Note: the docs UI "Try it out" sends the same requests as `curl`; on Windows consoles `curl`
+may mangle non-ASCII characters in a typed body (use a UTF-8 file with `-d @body.json`).
+
 ### 3. Confirm the secret code is not stored in plain text
 
 In `mongosh`: `db.reservations.findOne()` shows `secretCodeHash` (64 hex chars) and no
@@ -80,3 +85,4 @@ In `mongosh`: `db.reservations.findOne()` shows `secretCodeHash` (64 hex chars) 
   interval that blocks that table/guest time (and table removal) until removed by hand.
   Replica-set transactions are the long-term fix ([research R5](./research.md#r5-enforcing-no-two-overlapping-reservations-per-table-without-transactions)).
 - No rate limiting or abuse protection on the public operations.
+- A table removal whose restore failed leaves the table removed (`500`); see the README.

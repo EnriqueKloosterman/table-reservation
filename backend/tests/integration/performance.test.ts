@@ -1,6 +1,9 @@
+import { Types } from "mongoose";
 import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ClosedDate } from "../../src/modules/closed-dates/closed-date.model.js";
+import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.model.js";
+import { Reservation } from "../../src/modules/reservations/reservation.model.js";
 import { Table } from "../../src/modules/tables/table.model.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { loginAs } from "../helpers/login-as.js";
@@ -35,6 +38,58 @@ const SCHEDULE = {
   })),
 };
 
+// Feature 002: 10,000 reservations (50 days x 100 tables x lunch and dinner), each with its
+// table and guest interval, written straight through the models.
+const BOOKED_DAYS = dates("2026-11-07", 50);
+const BOOKED_SLOTS = [
+  { start: "12:00", end: "14:00" },
+  { start: "20:00", end: "22:00" },
+];
+/** Service days (Tue-Sun) after the booked range, before the closed dates, within the horizon. */
+const FREE_DAYS = ["2026-12-27", "2026-12-29", "2026-12-30", "2026-12-31"];
+
+async function seedReservations(): Promise<void> {
+  const tables = await Table.find({}, { _id: 1 }).lean();
+  const reservations: Record<string, unknown>[] = [];
+  const tableDays: Record<string, unknown>[] = [];
+  const guestDays: Record<string, unknown>[] = [];
+  let seq = 0;
+  for (const date of BOOKED_DAYS) {
+    for (const table of tables) {
+      const intervals: Record<string, unknown>[] = [];
+      for (const slot of BOOKED_SLOTS) {
+        const _id = new Types.ObjectId();
+        const startAt = new Date(`${date}T${slot.start}:00Z`);
+        const endAt = new Date(`${date}T${slot.end}:00Z`);
+        const email = `seed${seq++}@mail.com`;
+        const interval = { reservationId: _id, start: startAt, end: endAt };
+        reservations.push({
+          _id,
+          tableId: table._id,
+          date,
+          startTime: slot.start,
+          endTime: slot.end,
+          startAt,
+          endAt,
+          partySize: 2,
+          guestName: "Seed Guest",
+          guestEmail: email,
+          guestPhone: "600123456",
+          secretCodeHash: "0".repeat(64),
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        });
+        intervals.push(interval);
+        guestDays.push({ email, date, intervals: [interval] });
+      }
+      tableDays.push({ tableId: table._id, date, intervals });
+    }
+  }
+  await Reservation.insertMany(reservations, { ordered: false });
+  await TableDay.insertMany(tableDays, { ordered: false });
+  await GuestDay.insertMany(guestDays, { ordered: false });
+  expect(await Reservation.countDocuments({})).toBe(10_000);
+}
+
 // Seeding happens once; the per-test cleanup of useTestDatabase runs before `it`, so the
 // whole measurement lives in a single test.
 async function seed(): Promise<void> {
@@ -46,6 +101,7 @@ async function seed(): Promise<void> {
   await ClosedDate.insertMany(dates("2027-01-01", 500).map((date) => ({ date, reason: null })));
   const put = await request(app).put("/schedule").set("Authorization", `Bearer ${token}`).send(SCHEDULE);
   expect(put.status).toBe(200);
+  await seedReservations();
 }
 
 type Sample = { ms: number; status: number };
@@ -81,6 +137,33 @@ const OPERATIONS: [string, (n: number) => request.Test, number][] = [
   ["POST /tables", (n) => request(app).post("/tables").send({ name: `Perf ${n}`, capacity: 2 }), 201],
   ["PUT /schedule", () => request(app).put("/schedule").send(SCHEDULE), 200],
   ["POST /closed-dates", (n) => request(app).post("/closed-dates").send({ date: futureDates[n] }), 201],
+  // Feature 002 public operations, against the full data volume. The lookups hit a fully
+  // booked Saturday; the reservations go to days that still have free tables.
+  [
+    "GET /availability",
+    () => request(app).get("/availability").query({ date: "2026-11-14", time: "20:30", partySize: "2" }),
+    200,
+  ],
+  [
+    "GET /availability/times",
+    () => request(app).get("/availability/times").query({ date: "2026-11-14", partySize: "2" }),
+    200,
+  ],
+  [
+    "POST /reservations",
+    (n) =>
+      request(app)
+        .post("/reservations")
+        .send({
+          date: FREE_DAYS[n % FREE_DAYS.length],
+          time: "20:00",
+          partySize: 2,
+          name: "Perf Guest",
+          email: `perf${n}@mail.com`,
+          phone: "600123456",
+        }),
+    201,
+  ],
 ];
 
 describe("SC-006: performance smoke", () => {
@@ -89,7 +172,7 @@ describe("SC-006: performance smoke", () => {
   });
 
   it(
-    `p95 latency of every management operation is under ${P95_LIMIT_MS} ms`,
+    `p95 latency of every management and public operation is under ${P95_LIMIT_MS} ms`,
     async () => {
       await seed();
       for (const [name, send, status] of OPERATIONS) {
