@@ -53,7 +53,8 @@ while upcoming reservations exist. No new dependencies.
 | Workflow | Spec Kit flow; English | spec → plan → tasks → implement; all in English. | ✅ |
 
 **Gate result (pre-research)**: PASS. No constitution amendment needed.
-**Gate result (post-design re-check)**: PASS. One refinement of the input design is recorded
+**Gate result (post-design re-check)**: PASS. The only integrity gap, orphan intervals, can
+only hide a time and never allow an overlap (research R5), so Principle III holds. One refinement of the input design is recorded
 in [R10](./research.md#r10-table-removal-vs-reservation-race-fr-017): table removal checks the
 claimed intervals in `TableDay` rather than the `Reservation` collection, because the
 reserve flow inserts the reservation after its re-check and a `Reservation`-based check
@@ -157,11 +158,14 @@ Full rationale in [research.md](./research.md).
 4. **Atomic claims** (R5): `TableDay`/`GuestDay` documents, conditional `$push` with upsert
    and a single retry on `11000`. Works on plain `mongod`.
 5. **Reserve flow** (R6): validate → duplicate pre-read → availability → guest claim → table
-   claims in candidate order with re-check → insert → confirmation; releases on every
-   failure path.
-6. **Table removal** (R10): set removed → check `TableDay` claims ending after now → revert +
-   409 if any.
-7. **Affected reports** (R11): computed after the change, informational, `endAt > now`.
+   claims in candidate order with re-check → insert (unknown outcome resolved by an
+   existence check) → post-store configuration verification with rollback → confirmation;
+   release rules and a per-step failure table cover every failure path (FR-027, FR-028).
+6. **Table removal** (R10): pre-check `TableDay` claims ending after now (409, table
+   untouched) → set removed → re-check → revert + 409 if a reservation raced in; revert
+   failure → `INTERNAL_ERROR` (FR-029).
+7. **Affected reports** (R11): computed after the change, informational, `endAt > now`; no
+   reservation is missed because the reserve flow verifies after insert (FR-030).
 8. **Errors** (R13): `NO_AVAILABILITY` 409 `{ reason }`; new conflicts carry a reason.
 9. **Secret code** (R8): 32 random bytes base64url, SHA-256 stored with `select: false`.
 
@@ -174,8 +178,12 @@ Full rationale in [research.md](./research.md).
 - **Fixtures fit the scenario**: periods long enough for the reservation (e.g. dinner
   18:00–23:30); a 22:00 start never fits with the default 120 minutes (R14).
 - **Concurrency** (`Promise.all`, real mongodb-memory-server): SC-002 20 × 50 rounds with a
-  direct `TableDay` overlap assertion; same-email pair; candidate fallback; removal race in
-  both orderings; insert failure leaves no intervals.
+  direct `TableDay` overlap assertion and an end-of-round state check (no overlaps, no
+  orphan intervals, no reservation on a removed table; a round with zero successes fails);
+  same-email pair; candidate fallback; removal race in both orderings (forced with a
+  test-only `afterClaim` hook injected through the service dependencies, never set in
+  production); insert failure leaves no intervals; unknown insert outcome (three stubs);
+  failing release; post-store verification rollback; failing removal revert.
 - **Reason coverage** (SC-003): one unit case and at least one HTTP case per reason, for
   both lookups and the reserve operation.
 - **Contract**: extend the 001 suites; new operations public, documented, examples present,
@@ -203,7 +211,8 @@ Full rationale in [research.md](./research.md).
 6. **US5 Discoverability (P3)**: contract suites (17 ops, 6 public, reasons, examples, error
    shape), documentation review.
 7. **Polish**: SC-006 performance test, README (config keys, public operations, known debt:
-   orphan-interval crash window, no rate limiting on public operations), quickstart run.
+   orphan intervals with the `mongosh` listing and cleanup procedure (FR-031), a removal
+   whose revert failed, no rate limiting on public operations), quickstart run.
 
 ## Complexity Tracking
 
@@ -216,4 +225,5 @@ Full rationale in [research.md](./research.md).
 | 001 test `tests/integration/tables.test.ts` asserts unconditional `DELETE /tables/{id}` → 204. | II | FR-017 refuses removal with upcoming reservations. | — | Existing cases have no reservations and still expect 204; new 409 cases added in US4. |
 | 001 contract tests pin the public-operation set (3) and the operation count (14). | I, II | Three public operations are added. | — | Updated to 6 public operations and 17 operations in US5. |
 | `DELETE /tables/{id}` checks `TableDay` claims instead of `Reservation` documents (refines the input design). | III | Closes the claim → re-check → remove → insert interleaving ([R10](./research.md#r10-table-removal-vs-reservation-race-fr-017)). | A `Reservation` check misses in-flight reservations. | Race tests in both orderings; worst case is a spurious 409. |
-| Orphan-interval window on crash between claim and insert. | III (documented residual risk) | No transactions on plain `mongod`. | Replica-set transactions add an infrastructure requirement; a sweeper adds a background job (YAGNI). | Documented as known debt in README and research R5. |
+| Orphan intervals: process stop between claim and insert/release, a failed release, or intervals kept when the insert outcome is unknown. | III (documented residual risk) | No transactions on plain `mongod`. | Replica-set transactions add an infrastructure requirement; a sweeper adds a background job (YAGNI). | Safe direction (an orphan only hides a time, never allows an overlap, so the Principle III invariant holds and only availability is lost); spec FR-031; manual `mongosh` listing and cleanup in the README; documented in research R5. |
+| Post-store verification with rollback (reserve flow step 9) and the removal pre-check/re-check. | III | Closes the interleavings between a reservation being created and a closed date, schedule, capacity change or table removal without transactions (FR-029, FR-030). | Accepting that a concurrent reservation may be missing from the staff report would leave a stored reservation contradicting the configuration (FR-021). | One extra read of closed date, schedule and table per reservation; race tests in both orders. |

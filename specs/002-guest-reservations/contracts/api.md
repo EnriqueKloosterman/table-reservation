@@ -24,8 +24,12 @@ Availability reasons (closed set, snake_case): `too_soon`, `too_far_ahead`, `clo
 `closed_day`, `outside_service_hours`, `party_too_large`, `no_table_free`.
 
 New `CONFLICT` cases carry `details: { "reason": "duplicate_reservation" }` or
-`{ "reason": "table_has_upcoming_reservations" }`. The 001 `CONFLICT` cases (duplicate table
-name, date already closed) keep no `details`.
+`{ "reason": "table_has_upcoming_reservations" }` (closed set of conflict reasons). The 001
+`CONFLICT` cases (duplicate table name, date already closed) keep no `details`.
+
+Spec category → machine-readable form: validation → `VALIDATION_ERROR`, not found →
+`NOT_FOUND`, conflict → `CONFLICT`, no availability → `NO_AVAILABILITY`, internal error →
+`INTERNAL_ERROR`; the reason categories are the snake_case strings above (spec FR-025).
 
 `ErrorResponse.details` becomes `oneOf`: field-error array | `{ database: "down" }` |
 `{ reason: <availability reason> }` | `{ reason: <conflict reason> }`.
@@ -49,6 +53,11 @@ decimals or spaces.
 `date` / `startTime` / `endTime` / `time` are restaurant-local; `createdAt` is a UTC ISO
 instant. On a DST-change day `endTime` reflects the real duration
 ([research R3](../research.md#r3-containment-end-time-and-dst-days)).
+
+### Caching
+
+`GET /availability` and `GET /availability/times` answers are snapshots: both responses carry
+`Cache-Control: no-store` (spec FR-007). `POST /reservations` is not cacheable either.
 
 ## New operations
 
@@ -102,6 +111,20 @@ Body (strict):
   "name": "Ana García", "email": "ana@mail.com", "phone": "+34 600 123 456" }
 ```
 
+Body rules (all fields required; any other field → 400):
+
+| Field | Rule |
+|---|---|
+| `date` | Real calendar date, `YYYY-MM-DD`. |
+| `time` | `HH:mm`, 24-hour, `00:00`–`23:59`, two digits each. |
+| `partySize` | JSON integer 1–50 (not a string, not a decimal). |
+| `name` | String, 1–100 after trimming. |
+| `email` | String, one address (no display name, no list) with valid syntax, ≤ 254 after trimming; stored and returned lowercased. |
+| `phone` | String, 7–20 after trimming, only digits, spaces, `-`, `(`, `)` and an optional leading `+`, with at least 7 digits. |
+
+Lengths are counted as string length (UTF-16 code units). Every offending field is listed at
+once. The response echoes the guest values as stored (trimmed; email lowercased).
+
 `201` (no `Location` header — no read operation exists yet):
 
 ```json
@@ -113,21 +136,27 @@ Body (strict):
   "secretCode": "Yq3k0v8p1...43 base64url characters" }
 ```
 
-`secretCode` appears only in this response and is never returned again.
+`secretCode` appears only in this response, is never logged and is never returned again.
 
 Errors:
 
 | Status | Code | When |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Body rules ([data model](../data-model.md#validation-rules-from-the-spec)); every offending field listed. |
-| 409 | `CONFLICT` | `details.reason = "duplicate_reservation"`: the normalized email already holds an overlapping reservation (checked before availability). |
-| 409 | `NO_AVAILABILITY` | `details.reason` = any availability reason. Nothing stored. |
-| 500 | `INTERNAL_ERROR` | Storage failed; no partial reservation remains. |
+| 409 | `CONFLICT` | `details.reason = "duplicate_reservation"`: the normalized email already holds an overlapping reservation or an unreleased hold (checked before availability against finished requests; a request racing an in-flight one with the same email may be refused even if that one later fails). `details` carries nothing about the existing reservation. |
+| 409 | `NO_AVAILABILITY` | `details.reason` = any availability reason. Nothing stored. `no_table_free` also covers a lost race: try another time. A reservation rolled back by the post-store check (configuration changed while it was created) also answers here with the matching reason. |
+| 500 | `INTERNAL_ERROR` | Storage failed; no reservation is stored and no hold remains, except that when the database could not even confirm whether the write happened, the client must not assume either outcome. |
+
+**Retries**: there is no idempotency key. Repeating a request whose success response was lost
+answers `409 duplicate_reservation` and the secret code cannot be recovered. Repeating after a
+`500` may also answer `409 duplicate_reservation` if an orphan hold remains
+(spec FR-028, FR-031).
 
 ## Changed 001 operations (additive)
 
-`affectedReservations` is always present (possibly `[]`), sorted by start instant, and lists
-only reservations that have not ended. Item shape:
+`affectedReservations` is always present (possibly `[]`), complete (not paginated), sorted by
+start instant with ties broken by `id` ascending, and lists only reservations that have not
+ended. Item shape:
 
 ```json
 { "id": "6741a0ffee0123456789abcd", "date": "2026-12-24", "startTime": "20:00",
@@ -145,9 +174,13 @@ lists are unchanged.
 
 ### 🔒 `DELETE /tables/{id}` (changed rule)
 
-`204` as before when the table has no claimed reservation interval that ends after now.
-Otherwise `409 CONFLICT`, `details: { "reason": "table_has_upcoming_reservations" }`, and the
-table stays active. Errors: `401`, `404 NOT_FOUND`, `409 CONFLICT`, `500`.
+`204` as before when the table has no reservation or hold whose end is later than now (one
+ending exactly now has ended). Otherwise `409 CONFLICT`,
+`details: { "reason": "table_has_upcoming_reservations" }`, and the table is active when the
+response is sent (in the normal case it is never touched; only when a reservation races the
+removal is the table briefly removed and then restored). Orphan holds also cause this `409`.
+`500 INTERNAL_ERROR` if restoring the table after such a race fails: the table then stays
+removed (see spec FR-029). Errors: `401`, `404 NOT_FOUND`, `409 CONFLICT`, `500`.
 
 ## Documentation requirements (SC-005, FR-024)
 

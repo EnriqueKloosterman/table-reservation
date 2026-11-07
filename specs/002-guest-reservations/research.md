@@ -92,9 +92,21 @@ Every item below was open when planning started and is now decided. There are no
       (overlap, and the upsert tried to insert a second `{ tableId, date }`), or a
       concurrent request created the document first. Retry **once** without upsert:
       `matchedCount = 1` → claimed, `0` → overlap.
+  - **Outcomes**: `claimInterval` returns `true` (claimed) or `false` (overlap) or throws.
+    Only `11000` triggers the single retry. One retry is enough because calendar documents
+    are never deleted (empty ones stay): after an `11000` the document exists, and the retry
+    has no upsert, so it cannot raise `11000` again. Any other error, including one on the
+    retry, propagates and the reserve flow answers `INTERNAL_ERROR`; it is never mapped to
+    overlap (FR-027c).
   - `releaseInterval(model, key, reservationId)`:
-    `updateOne(key, { $pull: { intervals: { reservationId } } })`. Empty documents are left
-    in place (harmless, reused by the next claim).
+    `updateOne(key, { $pull: { intervals: { reservationId } } })`. It removes only the
+    interval carrying the caller's own `reservationId`, never another request's. Empty
+    documents are left in place (harmless, reused by the next claim).
+  - **Startup**: `initModels()` awaits index creation for `TableDay` and `GuestDay`; if the
+    unique indexes cannot be built the application fails to start (without them the upsert
+    could create two documents for one key and break the invariant).
+  - **Instances**: the guarantee comes from single-document atomicity in MongoDB, so it
+    holds across any number of application instances sharing the database.
   - One document per (table, date) is enough because periods never cross midnight
     (feature 001), so a reservation never spans two dates (see R3 for the one accepted edge).
 - **Rationale**: Principle III requires a database-level guarantee; plain `mongod`
@@ -108,10 +120,22 @@ Every item below was open when planning started and is now decided. There are no
   - Fixed slot documents (one per table per 15 minutes): many writes per reservation and
     ties the guarantee to the slot interval, which is configurable.
   - Read-then-insert with an application lock: not safe across processes.
-- **Known residual risk (documented as debt in README)**: a crash between a successful
-  claim and the `Reservation` insert (or before a release) leaves an orphan interval that
-  blocks that table/guest time until removed by hand. No sweeper or transaction in this
-  feature.
+- **Known residual risk (documented as debt in README; spec FR-031)**: an **orphan
+  interval** (an interval whose `reservationId` has no `Reservation`) can come from (1) a
+  process stop between a claim and the insert or a release, (2) a `releaseInterval` that
+  fails on a failure path, (3) holds deliberately kept when the insert outcome is unknown
+  (R6 step 8). No sweeper or transaction in this feature.
+  - **Safe direction**: an orphan can only hide a time. An orphan table interval makes the
+    table look taken and blocks its removal; an orphan guest interval makes that email's
+    overlapping requests answer `duplicate_reservation` although no reservation exists. It
+    can never allow a double booking, because the invariant is "no two overlapping
+    intervals", and an orphan is an interval. Principle III therefore holds; only
+    availability is lost.
+  - **Identification and cleanup (manual)**: the README documents a read-only `mongosh`
+    aggregation listing intervals with `end > now` whose `reservationId` has no matching
+    `reservations._id` (`$lookup`), and the `$pull` that removes one. Intervals are
+    short-lived in the normal flow (milliseconds), so a listed interval older than a few
+    minutes is an orphan.
 
 ## R6. Reserve flow and refusal order
 
@@ -126,13 +150,53 @@ Every item below was open when planning started and is now decided. There are no
   5. Generate `reservationId` (`new Types.ObjectId()`).
   6. Claim the guest interval; failure → `409 CONFLICT` (`duplicate_reservation`). This is
      what makes simultaneous same-email requests safe (FR-026).
-  7. For each candidate from `chooseTables` in order: claim its interval; on success re-read
-     the table (`removed: false`, `capacity ≥ partySize`); if it no longer qualifies,
-     release that table interval and continue. No candidate left → release the guest
-     interval → `409 NO_AVAILABILITY` (`no_table_free`).
-  8. Insert the `Reservation` with `_id = reservationId`. On failure release both intervals
-     and throw `INTERNAL_ERROR` (spec: no partial reservation remains).
-  9. Return the confirmation including the plain secret code (R8).
+  7. For each candidate from `chooseTables` in order (FR-010 order, so a lost first choice
+     falls back to the next suitable table; only tables from the step 4 snapshot are
+     candidates): claim its interval; on success re-read the table (`removed: false`,
+     `capacity ≥ partySize`); if it no longer qualifies, release that table interval and
+     continue. No candidate left → release the guest interval → `409 NO_AVAILABILITY`
+     (`no_table_free`). (The snapshot said "available" but every claim was lost: same
+     outcome.)
+  8. Insert the `Reservation` with `_id = reservationId`. If the insert **fails with a
+     definite error** (validation, duplicate key): release the table interval, then the
+     guest interval, and throw `INTERNAL_ERROR`. If the outcome is **unknown** (timeout,
+     connection lost): `Reservation.exists({ _id: reservationId })`. Exists → continue as
+     success. Does not exist → release both intervals → `INTERNAL_ERROR`. The check itself
+     fails → **keep both intervals** (orphan, safe direction, R5) → `INTERNAL_ERROR`.
+     Releasing intervals when the document may exist would leave a reservation without its
+     interval and allow a double booking, which is why the check comes first (FR-027b).
+  9. **Post-store verification** (FR-030): reload closed date, schedule and the assigned
+     table, and re-run the configuration checks (closed date, containment in a period, table
+     not removed, capacity ≥ party). If any fails: `Reservation.deleteOne({ _id })`, then
+     release table and guest intervals, and answer `409 NO_AVAILABILITY` with the matching
+     reason (`closed_date`, `closed_day`, `outside_service_hours`, otherwise
+     `no_table_free`). If the delete fails, keep the intervals (the reservation still
+     exists with both) and answer `INTERNAL_ERROR`.
+  10. Return the confirmation including the plain secret code (R8).
+- **Release rules** (every failure path): release in the reverse order of acquisition
+  (table interval first, then guest interval); a failing `releaseInterval` is caught,
+  logged, and does not stop the other release (it leaves an orphan, R5 residual risk); the
+  original error, not the release error, decides the answer.
+- **Failure and rollback by step**:
+
+  | Failing point | State to undo | Answer |
+  |---|---|---|
+  | 1–2, 5 (no database access) | none | `INTERNAL_ERROR` (unexpected) |
+  | 3, 4 (reads) | none | database error → `INTERNAL_ERROR`; otherwise 409 as designed |
+  | 6 guest claim: overlap | none | `409 CONFLICT` `duplicate_reservation` |
+  | 6 guest claim: database error | none (the claim did not happen, or is unknown → treat as taken: attempt a release of `reservationId`) | `INTERNAL_ERROR` |
+  | 7 claim: database error | guest interval (and any table interval held) | `INTERNAL_ERROR` |
+  | 7 re-read: database error | that table interval, guest interval | `INTERNAL_ERROR` |
+  | 7 no candidate left | guest interval | `409 NO_AVAILABILITY` `no_table_free` |
+  | 8 insert fails (definite) | table + guest intervals | `INTERNAL_ERROR` |
+  | 8 insert outcome unknown | see step 8 | see step 8 |
+  | 9 verification fails | Reservation + intervals | `409 NO_AVAILABILITY` (reason) |
+  | 9 reads fail | none: the reservation is kept (it passed every check at step 7) | confirmation as success |
+- **Concurrent precedence**: the duplicate-before-availability order (step 3 before 4) is
+  guaranteed against finished requests. Against an in-flight request with the same email,
+  step 3 may miss its guest claim and step 4 report availability reasons first; and a
+  request refused at step 6 may be refused because of a request that later fails. Both are
+  accepted (spec FR-028).
 - **Gap times**: a nonexistent local time skips step 3 (no range to compare) and step 4
   reports `outside_service_hours` after the date-level reasons (R7).
 - **Rationale**: Matches the spec's precedence (validation → duplicate → availability) and
@@ -186,11 +250,27 @@ Every item below was open when planning started and is now decided. There are no
 ## R10. Table removal vs. reservation race (FR-017)
 
 - **Decision**: `DELETE /tables/{id}`:
-  1. `findOneAndUpdate({ _id, removed: false }, { removed: true, removedAt: now })` (as in 001;
-     unknown → 404).
-  2. Check `TableDay.exists({ tableId, "intervals.end": { $gt: now } })`.
-  3. If it exists: revert (`removed: false, removedAt: null`) and answer `409 CONFLICT`
-     (`table_has_upcoming_reservations`).
+  1. `Table.exists({ _id, removed: false })`; unknown or already removed → 404 (as in 001).
+  2. **Pre-check** `TableDay.exists({ tableId, "intervals.end": { $gt: now } })`
+     (strict `>`: an interval ending exactly now has ended). If it exists: answer
+     `409 CONFLICT` (`table_has_upcoming_reservations`) **without touching the table**. This
+     is the normal refusal path and has no visible side effect.
+  3. `findOneAndUpdate({ _id, removed: false }, { removed: true, removedAt: now })`
+     (null → 404, a concurrent removal won).
+  4. **Re-check** the same `TableDay.exists`. If it exists (a reservation claimed the table
+     between steps 2 and 3): revert (`removed: false, removedAt: null`) and answer
+     `409 CONFLICT` (`table_has_upcoming_reservations`). If the revert fails: retry it once;
+     if it still fails, log it and answer `INTERNAL_ERROR`. The table then stays removed,
+     reservations keep referring to it (FR-018), no double booking is possible, and staff can
+     recreate the table; documented as known debt next to the orphan intervals (FR-029).
+- **Visible effect (FR-029)**: only between steps 3 and 4 (milliseconds) concurrent lookups
+  and reservations treat the table as removed, so a customer may get `party_too_large` or
+  `no_table_free` although the removal is then refused. Accepted: the table is active again
+  when the refusal is sent. Steps 2 and 4 together leave the window to the rare race, not
+  the common refusal.
+- **Spurious outcomes accepted**: staff get a 409 although the reservation went elsewhere
+  because it backed off, and a customer is refused or moved to another table while the
+  removal is being decided. Neither breaks an invariant.
 - **Refinement of the input design**: step 2 checks the **claimed intervals** in `TableDay`,
   not the `Reservation` collection. Reason: the reserve flow claims the interval *before*
   re-reading the table and inserts the `Reservation` *after*. With a check on
@@ -202,9 +282,13 @@ Every item below was open when planning started and is now decided. There are no
   is safe. Every `Reservation` has its interval in `TableDay` (no cancellation yet), so the
   interval check is a superset of the reservation check; an orphan interval (R5) also
   blocks removal, which is the conservative outcome.
-- **Tests**: both orderings forced with `Promise.all` over many rounds and with a test hook
-  that pauses the reserve flow between claim and re-read; after every round, no
-  `Reservation` references a removed table.
+- **Tests**: both orderings forced with `Promise.all` over many rounds and with a
+  **test-only** hook (an optional `afterClaim` callback injected through the service's
+  dependencies; production wiring never sets it, so no production path alters timing) that
+  pauses the reserve flow between claim and re-read; after every round, no `Reservation`
+  references a removed table. Also: a refused removal through step 2 leaves the table
+  untouched (`removedAt` still null); a stubbed failing revert gives `INTERNAL_ERROR` and
+  the table stays removed; the boundary (interval ending exactly now does not block).
 
 ## R11. Affected-reservation reports (FR-022)
 
@@ -220,9 +304,13 @@ Every item below was open when planning started and is now decided. There are no
 - Each operation applies its change first (unchanged 001 behavior), then computes the list.
   Responses gain `affectedReservations` (always present, possibly empty); `PUT /schedule`
   becomes `{ days, affectedReservations }`.
-- **Accepted limitation**: a reservation committed concurrently with the staff change may
-  be missing from that one response; the report is informational and the reservation is
-  never modified (FR-020), so no invariant is at risk.
+- **No reservation is missed (FR-030)**: the reserve flow verifies the configuration after
+  it inserts the `Reservation` (R6 step 9). For any interleaving of a staff change and a
+  reservation, either the insert happens before the change is written (the report, computed
+  after the write, finds the stored reservation) or after it (step 9 sees the new
+  configuration and rolls the reservation back with `NO_AVAILABILITY`). The report stays
+  informational and a stored reservation is never modified (FR-020). The same argument
+  covers capacity reductions and, together with R10, table removal.
 
 ## R12. Request validation of the new operations
 
@@ -268,6 +356,22 @@ Every item below was open when planning started and is now decided. There are no
   - Removal race (R10), both orderings.
   - Storage failure on the `Reservation` insert (stubbed `Reservation.create` rejects) →
     500 and no intervals left behind.
+  - Unknown insert outcome (stub: the write succeeds, then the call rejects with a network
+    error) → the `exists` check finds it → 201, intervals kept; stub where it was not
+    written → 500, intervals released; stub where the `exists` check also fails → 500 and
+    both intervals kept.
+  - A failing `releaseInterval` on a failure path does not mask the original answer and does
+    not stop the other release.
+  - Post-store verification (FR-030): a closed date, schedule replacement or capacity
+    reduction applied between the table claim and the insert (injected via the test-only
+    hook) → the reservation is rolled back with `NO_AVAILABILITY`, or the staff response
+    lists it; never neither.
+  - Same-email pair where the first request is forced to fail after its guest claim: the
+    second may get `duplicate_reservation` (accepted, FR-028), and after the first request
+    finishes a third attempt succeeds.
+  - Every concurrency round ends with a state check: no overlapping intervals, every
+    interval has a `Reservation` (no orphans), no `Reservation` on a removed table. Rounds
+    in which zero requests succeed fail SC-002.
 - Fixtures use periods in which the scenario fits. With the default 120 minutes a 22:00
   start can never succeed (periods end by 23:59), so the spec's illustrative "18:00–22:00
   then 22:00" scenarios (US2-3, US2-7) are tested as 18:00–20:00 held, 19:00 refused and

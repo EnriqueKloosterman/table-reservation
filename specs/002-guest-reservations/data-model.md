@@ -73,10 +73,14 @@ claimInterval(model, key, { reservationId, start, end }) → Promise<boolean>
   update  = { $push: { intervals: { reservationId, start, end } } }
   try updateOne(filter, update, { upsert: true }) → true
   on 11000: updateOne(filter, update) → matchedCount === 1   (retry once, no upsert)
+  any other error (also on the retry) → rethrown, never mapped to "overlap"
 
 releaseInterval(model, key, reservationId) → Promise<void>
-  updateOne(key, { $pull: { intervals: { reservationId } } })
+  updateOne(key, { $pull: { intervals: { reservationId } } })   // only the caller's own interval
 ```
+
+Calendar documents are never deleted, which is why one retry suffices. `initModels()` must
+await the unique indexes of `TableDay` and `GuestDay`; startup fails if they cannot be built.
 
 `key` is `{ tableId, date }` or `{ email, date }`. Single-document atomicity makes the
 filter check and the push indivisible ([research R5](./research.md#r5-enforcing-no-two-overlapping-reservations-per-table-without-transactions)).
@@ -87,9 +91,10 @@ filter check and the push indivisible ([research R5](./research.md#r5-enforcing-
 |---|---|
 | A table never holds two overlapping reservations | Atomic claim on `TableDay`. |
 | An email never holds two overlapping reservations | Atomic claim on `GuestDay`, claimed before any table. |
-| Every `Reservation` has its interval in its `TableDay` and `GuestDay` | Claims precede the insert; an insert failure releases both. |
-| No reservation ends on a removed table | Reserve flow re-reads the table after claiming; removal checks `TableDay` claims after setting `removed` and reverts on conflict ([R10](./research.md#r10-table-removal-vs-reservation-race-fr-017)). |
-| **Not guaranteed**: every interval has a `Reservation` | A crash between claim and insert leaves an orphan interval (known debt, README). |
+| Every `Reservation` has its interval in its `TableDay` and `GuestDay` | Claims precede the insert; a definite insert failure releases both; an unknown insert outcome is resolved by an existence check first and keeps the intervals if it cannot be resolved (R6 step 8). |
+| No reservation ends on a removed table | Reserve flow re-reads the table after claiming; removal pre-checks `TableDay` claims, sets `removed`, re-checks and reverts on conflict ([R10](./research.md#r10-table-removal-vs-reservation-race-fr-017)). |
+| No stored reservation contradicts the closed dates, schedule or table capacity current when the request finished | Post-store verification with rollback (R6 step 9), together with the affected report computed after the staff change (R11). |
+| **Not guaranteed**: every interval has a `Reservation` | Orphan intervals: process stop between claim and insert/release, a failed release, or intervals kept after an unresolvable insert outcome. Safe direction: they only hide a time, never allow an overlap. Manual identification and cleanup documented in the README (FR-031, [R5](./research.md#r5-enforcing-no-two-overlapping-reservations-per-table-without-transactions)). |
 
 ## Pure domain functions (unit-tested first)
 
