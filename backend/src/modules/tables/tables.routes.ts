@@ -22,7 +22,8 @@ export function registerTableRoutes(ctx: RouteContext): void {
     summary: "Create a table",
     description:
       "Creates a table. The name is stored trimmed with its case kept, and must not match an " +
-      "active table's name ignoring case and surrounding spaces (409 CONFLICT).",
+      "active table's name ignoring case and surrounding spaces (409 CONFLICT). The response " +
+      "has a `Location: /tables/{id}` header.",
     tags: TAGS,
     auth: true,
     request: { body: { schema: CreateTableSchema, example: CREATE_TABLE_EXAMPLE } },
@@ -44,7 +45,7 @@ export function registerTableRoutes(ctx: RouteContext): void {
     summary: "List tables",
     description:
       "Lists active tables ordered by name, ignoring case, with digit runs compared as numbers " +
-      "(T2 before T10).",
+      "(T2 before T10), English collation. Removed tables are not listed.",
     tags: TAGS,
     auth: true,
     success: { status: 200, description: "Active tables.", schema: z.array(TableSchema) },

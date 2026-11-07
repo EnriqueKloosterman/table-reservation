@@ -64,6 +64,20 @@ function toOpenApiPath(path: string): string {
   return path.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
 }
 
+const CODE_MEANING: Record<ErrorCode, string> = {
+  VALIDATION_ERROR:
+    "the request is invalid (content type, size, JSON syntax, schema or domain rule); " +
+    "`details` lists every offending `field`",
+  AUTHENTICATION_REQUIRED:
+    "missing, malformed, tampered or expired bearer token, or a token for a staff member " +
+    "that no longer exists",
+  INVALID_CREDENTIALS: "unknown email or wrong password (same refusal for both)",
+  NOT_FOUND: "the resource does not exist",
+  CONFLICT: "the request conflicts with existing data",
+  SERVICE_UNAVAILABLE: 'the database is not connected; `details` is `{ "database": "down" }`',
+  INTERNAL_ERROR: "unexpected failure; no `details`, nothing internal is disclosed",
+};
+
 function errorResponses(codes: ErrorCode[]): Record<string, ResponseConfig> {
   const byStatus = new Map<number, ErrorCode[]>();
   for (const code of new Set(codes)) {
@@ -72,9 +86,9 @@ function errorResponses(codes: ErrorCode[]): Record<string, ResponseConfig> {
   }
   const responses: Record<string, ResponseConfig> = {};
   for (const [status, statusCodes] of [...byStatus].sort(([a], [b]) => a - b)) {
-    const list = statusCodes.map((c) => `\`${c}\``).join(", ");
+    const list = statusCodes.map((c) => `\`${c}\`: ${CODE_MEANING[c]}`).join("; ");
     responses[String(status)] = {
-      description: `Error. Possible \`error.code\` values: ${list}.`,
+      description: `Error (standard error body). Possible \`error.code\` values: ${list}.`,
       content: { "application/json": { schema: ErrorResponseSchema } },
     };
   }
