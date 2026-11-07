@@ -68,6 +68,18 @@ export function chooseTables(
     .sort((a, b) => a.capacity - b.capacity || collator.compare(a.name, b.name));
 }
 
+/** Does a reservation starting at `time` fit entirely inside one period (wall-clock minutes, R3)? */
+export function fitsInsideAPeriod(
+  periods: ServicePeriod[],
+  time: string,
+  durationMinutes: number,
+): boolean {
+  const minutes = toMinutes(time);
+  return periods.some(
+    (p) => toMinutes(p.start) <= minutes && minutes + durationMinutes <= toMinutes(p.end),
+  );
+}
+
 /** Date-level reasons shared by both lookups: `date < today` and beyond the horizon. */
 function dateWindowReason(snapshot: DaySnapshot): Reason | null {
   const today = todayInTimeZone(snapshot.rules.timeZone, snapshot.now);
@@ -99,13 +111,7 @@ export function checkAvailability(
   if (periods.length === 0) return { available: false, reason: "closed_day" };
 
   // 5. the whole reservation must fit inside one period, on wall-clock minutes (R3).
-  const minutes = toMinutes(time);
-  const inside =
-    startAt !== null &&
-    periods.some(
-      (p) => toMinutes(p.start) <= minutes && minutes + rules.durationMinutes <= toMinutes(p.end),
-    );
-  if (!inside || startAt === null) return { available: false, reason: "outside_service_hours" };
+  if (startAt === null || !fitsInsideAPeriod(periods, time, rules.durationMinutes)) return { available: false, reason: "outside_service_hours" };
 
   // 6-7. tables.
   if (!tables.some((t) => t.capacity >= partySize)) {

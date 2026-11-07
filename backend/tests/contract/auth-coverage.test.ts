@@ -35,7 +35,7 @@ beforeAll(async () => {
 });
 
 describe("SC-002: authentication coverage", () => {
-  it("the public operations are exactly health, login, the OpenAPI document and the availability check", () => {
+  it("the public operations are exactly health, login, the OpenAPI document and the public availability and reservation operations", () => {
     const publicOps = operationsOf(doc)
       .filter((o) => (o.op.security ?? []).length === 0)
       .map((o) => o.key)
@@ -45,6 +45,7 @@ describe("SC-002: authentication coverage", () => {
       "GET /health",
       "GET /openapi.json",
       "POST /auth/login",
+      "POST /reservations",
     ]);
   });
 

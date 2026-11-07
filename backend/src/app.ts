@@ -6,6 +6,8 @@ import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
 import { registerAvailabilityRoutes } from "./modules/availability/availability.routes.js";
 import { registerClosedDateRoutes } from "./modules/closed-dates/closed-dates.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
+import type { ReservationTestHooks } from "./modules/reservations/reservations.ops.js";
+import { registerReservationRoutes } from "./modules/reservations/reservations.routes.js";
 import { registerScheduleRoutes } from "./modules/schedule/schedule.routes.js";
 import { registerTableRoutes } from "./modules/tables/tables.routes.js";
 import { systemClock, type Clock } from "./shared/clock.js";
@@ -22,6 +24,8 @@ export type CreateAppOptions = {
   isDatabaseUp?: () => boolean;
   /** Test-only hook to mount extra routes before the 404 fallback. */
   configureTestRoutes?: (ctx: RouteContext) => void;
+  /** Test-only hooks of the reserve flow. Only `buildTestApp` passes them; `server.ts` never does. */
+  testHooks?: ReservationTestHooks;
 };
 
 export function createApp({
@@ -29,6 +33,7 @@ export function createApp({
   clock = systemClock,
   isDatabaseUp = defaultIsDatabaseUp,
   configureTestRoutes,
+  testHooks,
 }: CreateAppOptions): Express {
   const app = express();
   app.disable("x-powered-by");
@@ -59,6 +64,7 @@ export function createApp({
   registerScheduleRoutes(ctx);
   registerClosedDateRoutes(ctx);
   registerAvailabilityRoutes(ctx);
+  registerReservationRoutes(ctx, testHooks);
   configureTestRoutes?.(ctx);
   registerDocsRoutes(ctx);
 

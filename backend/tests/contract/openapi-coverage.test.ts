@@ -7,7 +7,7 @@ const app = buildTestApp();
 let doc: OpenApiDocument;
 let operations: Operation[];
 
-const TAGS = ["Health", "Auth", "Tables", "Schedule", "Closed dates", "Availability", "Documentation"];
+const TAGS = ["Health", "Auth", "Tables", "Schedule", "Closed dates", "Availability", "Reservations", "Documentation"];
 const ERROR_REF = "#/components/schemas/ErrorResponse";
 
 /** Error statuses per operation, from contracts/api.md. */
@@ -27,6 +27,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "DELETE /closed-dates/{date}": [400, 401, 404, 500],
   "GET /openapi.json": [500],
   "GET /availability": [400, 500],
+  "POST /reservations": [400, 409, 500],
 };
 
 type Layer = {
@@ -60,10 +61,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 15 operations", () => {
+  it("documents exactly the mounted routes, 16 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(15);
+    expect(documented).toHaveLength(16);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
