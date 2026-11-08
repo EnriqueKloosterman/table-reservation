@@ -2,6 +2,7 @@ import type { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { zodIssuesToDetails } from "../validation/zod-issues.js";
 import { AppError, ERROR_STATUS, conflict, validationError } from "./app-error.js";
+import { logUnexpectedError } from "./log-error.js";
 
 type BodyParserError = { type: string; status?: number };
 
@@ -40,7 +41,7 @@ export const errorMiddleware: ErrorRequestHandler = (err, _req, res, next) => {
   }
   const appError = toAppError(err);
   if (!appError) {
-    console.error(err);
+    logUnexpectedError("unexpected_error", err);
     res.status(500).json({
       error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
     });

@@ -286,3 +286,11 @@ Task: "Update backend/tests/contract/openapi-coverage.test.ts, auth-coverage.tes
 **Purpose**: Gaps found by `/speckit-converge` against User Story 1 (T020–T023). Appended only; no earlier task was changed.
 
 - [X] T062 [US1] Add `backend/tests/integration/confirmation-email.unreachable.test.ts` that builds the app with `createApp` and the **real** Nodemailer sender pointed at a closed local port (`loadConfig` with `SMTP_URL=smtp://user:s3cret@127.0.0.1:1`, a valid `EMAIL_FROM`, a small `EMAIL_TIMEOUT_MS`; no SMTP server is needed) and asserts: app construction does not connect or throw; `POST /reservations` answers 201 in under 1 s; after `idle()` exactly one `email_failed` line was logged with a non-empty string `reason`; the line contains none of the secret code, the guest address or its local part, the guest name, `s3cret` or `127.0.0.1`; and the reservation is stored `confirmed` per spec Assumptions (unreachable transport only logs), FR-003, FR-004, Constitution V (partial)
+
+---
+
+## Phase 11: Convergence
+
+**Purpose**: Gaps found by `/speckit-converge` against the finished feature (T001–T062). Appended only; no earlier task was changed.
+
+- [X] T063 Stop the generic error loggers from printing raw error objects: in `backend/src/modules/reservations/reservations.service.ts` (the `Reservation failed`, `Could not release a time hold`, `Could not confirm whether the reservation was stored` and `Post-store verification` lines) and `backend/src/shared/errors/error-middleware.ts`, log only the error `name` and `code` (as `cancel_failed` and `release_failed` already do), never `message`, `keyValue` or the object itself; add a test in which a stubbed store failure carries the secret code hash, the guest address and the guest name in its message and assert none of them reaches `console.error` per T053 (log hygiene), FR-020 (partial)

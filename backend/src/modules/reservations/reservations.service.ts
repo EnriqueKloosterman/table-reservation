@@ -10,6 +10,7 @@ import {
   notFound,
   type AvailabilityReason,
 } from "../../shared/errors/app-error.js";
+import { logUnexpectedError } from "../../shared/errors/log-error.js";
 import { dayOfWeek, localToUtc, overlaps, utcToLocal } from "../../shared/time/local-time.js";
 import {
   checkAvailability,
@@ -92,7 +93,7 @@ export async function createReservation(
     return await reserve(input, deps);
   } catch (err) {
     if (err instanceof AppError) throw err;
-    console.error("Reservation failed:", err);
+    logUnexpectedError("reservation_failed", err);
     throw internalError();
   }
 }
@@ -135,7 +136,7 @@ async function reserve(
         await ops.release(hold.model, hold.key, reservationId);
       } catch (err) {
         // An orphan hold can only hide a time (FR-031); the original answer stands.
-        console.error("Could not release a time hold:", err);
+        logUnexpectedError("hold_release_failed", err);
       }
     }
   };
@@ -144,7 +145,7 @@ async function reserve(
     try {
       await ops.release(hold.model, hold.key, reservationId);
     } catch (err) {
-      console.error("Could not release a time hold:", err);
+      logUnexpectedError("hold_release_failed", err);
     }
   };
 
@@ -219,7 +220,7 @@ async function reserve(
       } catch (checkErr) {
         // Cannot tell: keep both holds. An extra hold only hides a time; a missing one could
         // allow a double booking.
-        console.error("Could not confirm whether the reservation was stored:", checkErr);
+        logUnexpectedError("store_unconfirmed", checkErr);
         held.length = 0;
         throw err;
       }
@@ -232,7 +233,7 @@ async function reserve(
       state = await ops.loadConfigState(date, dayOfWeek(date), tableId);
     } catch (err) {
       // The reservation passed every check at step 7; keep it.
-      console.error("Post-store verification could not read the configuration:", err);
+      logUnexpectedError("verification_unreadable", err);
     }
     if (state) {
       const reason = verificationFailure(state, time, partySize, config.RESERVATION_DURATION_MINUTES);
