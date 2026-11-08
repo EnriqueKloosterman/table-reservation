@@ -1,11 +1,12 @@
 import { Types } from "mongoose";
 import request from "supertest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ClosedDate } from "../../src/modules/closed-dates/closed-date.model.js";
 import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.model.js";
 import { Reservation } from "../../src/modules/reservations/reservation.model.js";
 import { Table } from "../../src/modules/tables/table.model.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
+import { FakeEmailSender } from "../helpers/fake-email-sender.js";
 import { loginAs } from "../helpers/login-as.js";
 import { seedStaff } from "../helpers/seed-staff.js";
 import { useTestDatabase } from "../setup/db.js";
@@ -166,6 +167,41 @@ const OPERATIONS: [string, (n: number) => request.Test, number][] = [
   ],
 ];
 
+// Feature 003, SC-010: cancellations (guest by code, staff by id) at the same data volume, with
+// a working, a failing and a slow email sender. The confirmation emails of the setup bookings go
+// to the same senders, so a `slow` sender also covers creation.
+const SENDERS = [
+  { label: "ok sender", sender: new FakeEmailSender("ok") },
+  { label: "fail sender", sender: new FakeEmailSender("fail") },
+  { label: "slow sender", sender: new FakeEmailSender("slow", 2000) },
+];
+
+/** Books `count` lunch reservations on free days through `target` and returns their codes. */
+async function bookForCancellation(target: ReturnType<typeof buildTestApp>, tag: string, count: number) {
+  const codes: string[] = [];
+  for (let from = 0; from < count; from += CONCURRENCY) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, count - from) }, async (_, i) => {
+        const n = from + i;
+        const res = await request(target)
+          .post("/reservations")
+          .send({
+            date: FREE_DAYS[n % FREE_DAYS.length],
+            time: "12:00",
+            partySize: 2,
+            name: "Cancel Guest",
+            email: `${tag}${n}@mail.com`,
+            phone: "600123456",
+          });
+        expect(res.status).toBe(201);
+        return (res.body as { secretCode: string }).secretCode;
+      }),
+    );
+    codes.push(...batch);
+  }
+  return codes;
+}
+
 describe("SC-006: performance smoke", () => {
   beforeAll(() => {
     expect(ROUNDS * CONCURRENCY).toBeGreaterThanOrEqual(100);
@@ -182,5 +218,33 @@ describe("SC-006: performance smoke", () => {
       }
     },
     120_000,
+  );
+
+  it(
+    `SC-010: p95 latency of guest and staff cancellations is under ${P95_LIMIT_MS} ms with ok, failing and slow senders`,
+    async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {}); // email_failed lines of the fail sender
+      await seed();
+      const total = ROUNDS * CONCURRENCY;
+      const seeded = (await Reservation.find({}, { _id: 1 }).limit(total * SENDERS.length).lean()).map((r) =>
+        r._id.toHexString(),
+      );
+      for (const [index, { label, sender }] of SENDERS.entries()) {
+        const target = buildTestApp({ now: new Date("2026-11-06T12:00:00Z"), emailSender: sender });
+        const codes = await bookForCancellation(target, `c${index}x`, total);
+        const ids = seeded.slice(index * total, (index + 1) * total);
+
+        const guest = p95(
+          await measure((n) => request(target).post("/reservations/cancel").send({ code: codes[n] }), 200),
+        );
+        console.log(`POST /reservations/cancel (${label}): p95 ${guest.toFixed(1)} ms`);
+        expect.soft(guest, `guest cancel, ${label}, p95 (ms)`).toBeLessThan(P95_LIMIT_MS);
+
+        const staff = p95(await measure((n) => request(target).post(`/reservations/${ids[n]}/cancel`), 200));
+        console.log(`POST /reservations/{id}/cancel (${label}): p95 ${staff.toFixed(1)} ms`);
+        expect.soft(staff, `staff cancel, ${label}, p95 (ms)`).toBeLessThan(P95_LIMIT_MS);
+      }
+    },
+    240_000,
   );
 });

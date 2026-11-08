@@ -60,6 +60,11 @@ prints **every** invalid key and exits with code 1 before connecting to anything
 | `TIME_SLOT_INTERVAL_MINUTES` | no | `15` | Whole number 5–120. Spacing of the start times listed by `GET /availability/times`. |
 | `MIN_NOTICE_MINUTES` | no | `60` | Whole number 0–1440. A reservation must start at least this long after now (`0` = no minimum). |
 | `BOOKING_HORIZON_DAYS` | no | `60` | Whole number 1–365. How many days ahead (today plus this many, inclusive) can be booked. |
+| `SMTP_URL` | no | unset | `smtp://` or `smtps://` URL of the mail server (may hold credentials: it is never logged). Unset = emails are **skipped** and only logged as `email_skipped`. |
+| `EMAIL_FROM` | iff `SMTP_URL` | — | Sender mailbox, `a@b.c` or `Name <a@b.c>`. Required when `SMTP_URL` is set, ignored otherwise. |
+| `EMAIL_TIMEOUT_MS` | no | `10000` | Whole number 100–120000. A send that takes longer is abandoned and logged as `EmailTimeout`. |
+| `RESTAURANT_NAME` | no | `the restaurant` | 1–100 characters; used in the email subjects and bodies. |
+| `CANCEL_LINK_BASE_URL` | no | `http://localhost:5173/cancel` | `http(s)` URL without a fragment. The confirmation email links to `<this>#code=<secret code>`. |
 | `STAFF_NAME` | seed only | — | 1–100 characters after trimming. |
 | `STAFF_EMAIL` | seed only | — | Valid email; stored trimmed and lowercased. |
 | `STAFF_PASSWORD` | seed only | — | 1–1024 characters. Stored only as a scrypt hash. |
@@ -74,7 +79,8 @@ the rest, are checked at startup. "Now", "today", the notice and the horizon are
 |---|---|
 | `GET /availability?date=&time=&partySize=` | Yes/no for a party at a time, with a `reason` when it cannot be seated: `too_soon`, `too_far_ahead`, `closed_date`, `closed_day`, `outside_service_hours`, `party_too_large`, `no_table_free` (first applicable, in that order). The table is never revealed. |
 | `GET /availability/times?date=&partySize=` | Bookable start times of a date, grouped by service period; an empty list carries one `reason`. Every listed time is accepted by the other two operations if nothing changed in between. |
-| `POST /reservations` | Creates a confirmed reservation and assigns the smallest suitable free table (then natural name order). The response includes a `secretCode` that is shown **only there**: it is stored only as a SHA-256 hash and never logged or returned again. |
+| `POST /reservations` | Creates a confirmed reservation and assigns the smallest suitable free table (then natural name order). The response includes a `secretCode` that is shown **only there**: it is stored only as a SHA-256 hash and never logged or returned again. The guest also gets a confirmation email (see below). |
+| `POST /reservations/cancel` | Cancels an upcoming confirmed reservation with the secret code, sent **only in the body**. |
 
 Refusals of `POST /reservations`: `400 VALIDATION_ERROR`; `409 CONFLICT` with
 `details.reason = "duplicate_reservation"` (the same email, trimmed and lowercased, already
@@ -85,8 +91,41 @@ answers are snapshots (`Cache-Control: no-store`).
 Staff operations changed by this feature: `DELETE /tables/{id}` answers
 `409 CONFLICT` (`table_has_upcoming_reservations`) while the table holds a reservation that has
 not ended; `POST /closed-dates`, `PUT /schedule` and `PATCH /tables/{id}` are applied even when
-they contradict upcoming reservations and list them in `affectedReservations` (informational:
-reservations are never modified, moved or cancelled).
+they contradict upcoming reservations and list them in `affectedReservations` (confirmed
+reservations only, each with `status: "confirmed"`; the change itself never modifies, moves or
+cancels them, staff cancel them one by one with `POST /reservations/{id}/cancel`).
+
+## Confirmation email and cancellation
+
+After a successful `POST /reservations` the guest receives a **confirmation email** (details, a
+link `CANCEL_LINK_BASE_URL#code=<code>` and the code as text; never the table name). It is sent
+in the background: a slow or failing mail server never delays or changes the response, a failure
+is logged as one `email_failed` JSON line (kind, reservation id, short reason, time; never the
+code, the address, the name or the server message), and nothing is retried.
+
+```bash
+# Guest: the code goes in the body, never in the URL
+curl -X POST http://localhost:3000/reservations/cancel   -H 'Content-Type: application/json' -d '{"code":"<secret code>"}'
+
+# Staff: bearer token required, no body
+curl -X POST http://localhost:3000/reservations/<id>/cancel   -H "Authorization: Bearer $TOKEN"
+```
+
+Both answer `200 { id, status: "cancelled", date, startTime, endTime, partySize, cancelledAt }`
+(`Cache-Control: no-store`) and send the guest a cancellation email (`You cancelled` /
+`The restaurant cancelled`, no code, no link). Refusals: `404 NOT_FOUND` ("Reservation not
+found", one answer for every unknown code or id), `409 ALREADY_CANCELLED` (safe to repeat),
+`409 CANNOT_CANCEL` (the start time has been reached), `401` (staff only), `400` (guest body).
+A cancelled reservation stays stored but frees its table and the guest's slot and no longer
+counts in any rule or report.
+
+To see the emails locally run [Mailpit](https://mailpit.axllent.org) and point the app at it:
+
+```bash
+docker run -p 1025:1025 -p 8025:8025 axllent/mailpit
+# .env: SMTP_URL=smtp://localhost:1025  EMAIL_FROM=reservations@example.test
+# inbox at http://localhost:8025
+```
 
 ## Staff accounts
 
@@ -200,3 +239,14 @@ Added by the reservations feature:
   check runs inside MongoDB and only the affected reservations are returned). With 10,000
   upcoming reservations its p95 is about 0.25 s in the performance test (limit 1 s); the cost
   grows linearly with the number of upcoming reservations.
+
+Added by the confirmation email and cancellation feature:
+
+- **A failed release leaves a `cancelled` reservation holding its intervals** (`500
+  INTERNAL_ERROR`, no email) until a repeated cancellation request repairs it (it then answers
+  `409 ALREADY_CANCELLED`). Until then the time looks taken; it can never cause a double booking.
+- **Failed emails are not retried.** There is no queue; the failure is only logged.
+- **No rate limiting on `POST /reservations/cancel`.** The secret code has 256 random bits, so
+  guessing is not practical, but the operation is open and unthrottled.
+- **SMTP is optional.** Without `SMTP_URL` emails are skipped and only an `email_skipped` line is
+  logged, so a guest never receives their code by email in that setup.
