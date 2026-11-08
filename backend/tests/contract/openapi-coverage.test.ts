@@ -30,6 +30,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "GET /availability/times": [400, 500],
   "POST /reservations": [400, 409, 500],
   "POST /reservations/cancel": [400, 404, 409, 500],
+  "POST /reservations/{id}/cancel": [401, 404, 409, 500],
 };
 
 type Layer = {
@@ -63,10 +64,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 18 operations", () => {
+  it("documents exactly the mounted routes, 19 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(18);
+    expect(documented).toHaveLength(19);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
@@ -406,5 +407,42 @@ describe("feature 003 / FR-023: POST /reservations/cancel is documented as publi
     const codes = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["code"]!.enum;
     expect(codes).toContain("ALREADY_CANCELLED");
     expect(codes).toContain("CANNOT_CANCEL");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US3): the staff cancellation.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / US3: POST /reservations/{id}/cancel is documented as a staff operation", () => {
+  const key = "POST /reservations/{id}/cancel";
+
+  it("requires the bearer token and does not claim to be public", () => {
+    const { op } = byKey(key);
+    expect(op.summary?.trim()).toBeTruthy();
+    expect(op.description).not.toMatch(/^Public/);
+    expect(op.description).toMatch(/staff|sign-in/i);
+    expect((op.security ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("has an id path parameter and no required request body", () => {
+    const { op } = byKey(key);
+    const params = (op.parameters ?? []) as { name: string; in: string; required?: boolean }[];
+    expect(params.some((p) => p.name === "id" && p.in === "path")).toBe(true);
+    expect(op.requestBody?.required ?? false).toBe(false);
+  });
+
+  it("documents 200, 401, 404, 409 and 500 with their codes", () => {
+    const { responses } = byKey(key).op;
+    expect(Object.keys(responses).sort()).toEqual(["200", "401", "404", "409", "500"]);
+    expect(refName(responses["200"]!.content?.["application/json"]?.schema?.$ref)).toBe("CancellationResult");
+    for (const status of ["401", "404", "409", "500"]) {
+      expect(responses[status]!.content?.["application/json"]?.schema?.$ref, status).toBe(ERROR_REF);
+    }
+    expect(responses["401"]!.description).toContain("`AUTHENTICATION_REQUIRED`");
+    expect(responses["404"]!.description).toContain("`NOT_FOUND`");
+    expect(responses["409"]!.description).toContain("`ALREADY_CANCELLED`");
+    expect(responses["409"]!.description).toContain("`CANNOT_CANCEL`");
+    expect(responses["500"]!.description).toContain("`INTERNAL_ERROR`");
   });
 });

@@ -105,6 +105,11 @@ export const ReservationStatusSchema = z
       "the guest or by staff; it stays stored for history but no longer counts anywhere.",
   });
 
+/** The id format is checked in the service: a malformed id is a 404, not a 400. */
+export const ReservationIdParamsSchema = z.strictObject({
+  id: z.string().openapi({ description: "Reservation id (24 hex characters).", example: "6741a0ffee0123456789abcd" }),
+});
+
 export const CancelBodySchema = z
   .strictObject({
     code: z.string().openapi({

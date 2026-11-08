@@ -6,7 +6,8 @@ export type OperationObject = {
   description?: string;
   tags?: string[];
   security?: Record<string, string[]>[];
-  requestBody?: { content?: Record<string, { example?: unknown; examples?: unknown }> };
+  parameters?: { name: string; in: string; required?: boolean }[];
+  requestBody?: { required?: boolean; content?: Record<string, { example?: unknown; examples?: unknown }> };
   responses: Record<
     string,
     { description?: string; content?: Record<string, { schema?: { $ref?: string } }> }

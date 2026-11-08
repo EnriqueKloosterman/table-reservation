@@ -9,6 +9,7 @@ import {
   CREATE_RESERVATION_EXAMPLE,
   CreateReservationBodySchema,
   ReservationConfirmationSchema,
+  ReservationIdParamsSchema,
 } from "./reservations.schemas.js";
 
 const TAGS = ["Reservations"];
@@ -76,5 +77,33 @@ export function registerReservationRoutes(
     },
     errors: ["VALIDATION_ERROR", "NOT_FOUND", "ALREADY_CANCELLED", "CANNOT_CANCEL"],
     handler: controller.cancelByCode,
+  });
+
+  defineRoute(ctx, {
+    method: "post",
+    path: "/reservations/:id/cancel",
+    summary: "Cancel a reservation as staff",
+    description:
+      "Staff sign-in is required (bearer token). Cancels an upcoming confirmed reservation by " +
+      "its id, with the same rules as the guest cancellation: the table and the guest's time " +
+      "slot are released at once and the guest receives a cancellation email (a failure to " +
+      "send it never changes the answer). Use it for the reservations listed in " +
+      "`affectedReservations` after a closed date, schedule or table change. Check order: " +
+      "authentication (401), then an unknown or malformed id (404 `NOT_FOUND`, the same " +
+      "answer as the guest operation), then 409: `ALREADY_CANCELLED` (safe to repeat, changes " +
+      "nothing) takes precedence over `CANNOT_CANCEL` (the start time has been reached or " +
+      "passed). No request body is needed; one that is sent is ignored. If the release cannot " +
+      "be completed the answer is 500 and a repeated request repairs it. The response is " +
+      "never cached.",
+    tags: TAGS,
+    auth: true,
+    request: { params: ReservationIdParamsSchema },
+    success: {
+      status: 200,
+      description: "The reservation is now cancelled.",
+      schema: CancellationResultSchema,
+    },
+    errors: ["NOT_FOUND", "ALREADY_CANCELLED", "CANNOT_CANCEL"],
+    handler: controller.cancelByStaff,
   });
 }

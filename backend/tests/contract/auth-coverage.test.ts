@@ -115,7 +115,7 @@ describe("feature 002: the new operations are public", () => {
 
   it("no staff operation became public", () => {
     const staff = operationsOf(doc).filter((o) => !FINAL_PUBLIC.includes(o.key));
-    expect(staff.length).toBe(11);
+    expect(staff.length).toBe(12);
     for (const op of staff) expect((op.op.security ?? []).length, op.key).toBeGreaterThan(0);
   });
 

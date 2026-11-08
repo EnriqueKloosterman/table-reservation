@@ -1,12 +1,17 @@
 import type { Notifier } from "../notifications/notifier.js";
 import type { RouteContext, RouteHandler } from "../../shared/openapi/route.js";
 import type { ReservationTestHooks } from "./reservations.ops.js";
-import type { CancelBodySchema, CreateReservationBodySchema } from "./reservations.schemas.js";
+import type {
+  CancelBodySchema,
+  CreateReservationBodySchema,
+  ReservationIdParamsSchema,
+} from "./reservations.schemas.js";
 import { cancelReservation, createReservation } from "./reservations.service.js";
 
 export type ReservationsController = {
   create: RouteHandler<undefined, undefined, typeof CreateReservationBodySchema>;
   cancelByCode: RouteHandler<undefined, undefined, typeof CancelBodySchema>;
+  cancelByStaff: RouteHandler<typeof ReservationIdParamsSchema, undefined, undefined>;
 };
 
 /** HTTP handlers for the public reservation operation. */
@@ -24,6 +29,10 @@ export function createReservationsController(
     },
     cancelByCode: async (_req, res) => {
       const result = await cancelReservation({ by: "guest", code: res.locals.input.body.code }, deps);
+      res.status(200).set("Cache-Control", "no-store").json(result);
+    },
+    cancelByStaff: async (_req, res) => {
+      const result = await cancelReservation({ by: "staff", id: res.locals.input.params.id }, deps);
       res.status(200).set("Cache-Control", "no-store").json(result);
     },
   };

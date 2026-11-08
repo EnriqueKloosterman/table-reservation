@@ -5,11 +5,13 @@ import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.mode
 import { releaseInterval } from "../../src/modules/reservations/interval-claims.js";
 import { Reservation } from "../../src/modules/reservations/reservation.model.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
-import { cancelWithCode } from "../helpers/cancel-as.js";
+import { cancelAsStaff, cancelWithCode } from "../helpers/cancel-as.js";
 import { expectError } from "../helpers/expect-error.js";
 import { FakeEmailSender } from "../helpers/fake-email-sender.js";
+import { loginAs } from "../helpers/login-as.js";
 import { reserveAs } from "../helpers/reserve-as.js";
 import { seedRestaurant } from "../helpers/seed-restaurant.js";
+import { seedStaff } from "../helpers/seed-staff.js";
 import { useTestDatabase } from "../setup/db.js";
 
 // Feature 003, SC-005 / FR-015 / research R8: concurrent cancellations and cancel vs reserve.
@@ -31,6 +33,7 @@ function build() {
       notifier = n;
     },
     // Optionally holds back every release until `gate` settles (set per test).
+    jwtExpiresIn: "30d",
     reservationOps: {
       release: async (model, key, reservationId) => {
         await gate;
@@ -44,6 +47,7 @@ beforeEach(async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
   gate = undefined;
+  await seedStaff();
   await seedRestaurant({
     tables: [{ name: "T1", capacity: 2 }],
     schedule: { saturday: [{ name: "Dinner", start: "18:00", end: "23:30" }] },
@@ -72,6 +76,35 @@ describe("SC-005: 20 simultaneous cancellations", () => {
       const ok = results.filter((r) => r.status === 200);
       const already = results.filter((r) => r.status === 409);
       expect(ok, `round ${round}: one 200`).toHaveLength(1);
+      expect(already, `round ${round}: nineteen 409`).toHaveLength(19);
+      for (const r of already) expectError(r, 409, "ALREADY_CANCELLED");
+
+      const emails = sender.sent.filter((s) => s.meta?.kind === "cancellation" && s.meta.reservationId === id);
+      expect(emails, `round ${round}: one email`).toHaveLength(1);
+      expect(await holds(id), `round ${round}: no interval left`).toBe(0);
+      expect((await Reservation.findById(id).lean())?.status).toBe("cancelled");
+    }
+  }, 180_000);
+});
+
+describe("SC-005 (US3): 20 simultaneous cancellations mixing guest by code and staff by id", () => {
+  it("over 50 rounds exactly one succeeds, one email is sent and no interval is left", async () => {
+    const app = build();
+    const token = await loginAs(app);
+    for (let round = 0; round < 50; round++) {
+      const created = await reserveAs(app, { date: DATE, time: "18:00", email: `mix${round}@mail.com` });
+      expect(created.status, `round ${round} create`).toBe(201);
+      const { id, secretCode } = created.body as { id: string; secretCode: string };
+
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, i) =>
+          i % 2 === 0 ? cancelWithCode(app, secretCode) : cancelAsStaff(app, id, token),
+        ),
+      );
+      await notifier?.idle();
+
+      expect(results.filter((r) => r.status === 200), `round ${round}: one 200`).toHaveLength(1);
+      const already = results.filter((r) => r.status === 409);
       expect(already, `round ${round}: nineteen 409`).toHaveLength(19);
       for (const r of already) expectError(r, 409, "ALREADY_CANCELLED");
 
