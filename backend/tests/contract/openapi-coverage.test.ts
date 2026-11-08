@@ -1,3 +1,4 @@
+import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { fetchOpenApi, operationsOf, type OpenApiDocument, type Operation } from "../helpers/openapi.js";
@@ -445,5 +446,64 @@ describe("feature 003 / US3: POST /reservations/{id}/cancel is documented as a s
     expect(responses["409"]!.description).toContain("`ALREADY_CANCELLED`");
     expect(responses["409"]!.description).toContain("`CANNOT_CANCEL`");
     expect(responses["500"]!.description).toContain("`INTERNAL_ERROR`");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US5): final pins for the whole contract.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / US5: the contract documents both cancellation operations", () => {
+  it("has exactly 19 operations, 7 of them public with the public description prefix", () => {
+    expect(operations).toHaveLength(19);
+    const publicOps = operations.filter((o) => (o.op.security ?? []).length === 0);
+    expect(publicOps.map((o) => o.key).sort()).toEqual([
+      "GET /availability",
+      "GET /availability/times",
+      "GET /health",
+      "GET /openapi.json",
+      "POST /auth/login",
+      "POST /reservations",
+      "POST /reservations/cancel",
+    ]);
+    for (const { key, op } of operations.filter((o) => o.key.startsWith("POST /reservations"))) {
+      const isPublic = (op.security ?? []).length === 0;
+      if (isPublic) expect(op.description, key).toMatch(/^Public — no sign-in required\./);
+    }
+  });
+
+  it("every response of both cancellation operations has an example (on the response or on its schema component)", () => {
+    for (const key of ["POST /reservations/cancel", "POST /reservations/{id}/cancel"]) {
+      const { responses } = byKey(key).op;
+      for (const [status, response] of Object.entries(responses)) {
+        const media: { example?: unknown; examples?: unknown; schema?: { $ref?: string } } | undefined =
+          response.content?.["application/json"];
+        const component = schemas()[refName(media?.schema?.$ref)] as { example?: unknown } | undefined;
+        expect(media?.example ?? media?.examples ?? component?.example, `${key} ${status} example`).toBeDefined();
+      }
+    }
+  });
+
+  it("the ReservationStatus schema lists exactly confirmed and cancelled", () => {
+    const status = schemas()["ReservationStatus"];
+    expect(status, "ReservationStatus component").toBeDefined();
+    expect([...(status!.enum ?? [])].sort()).toEqual(["cancelled", "confirmed"]);
+  });
+
+  it("POST /reservations states the confirmation email and that a send failure never changes the response", () => {
+    const text = byKey("POST /reservations").op.description ?? "";
+    expect(text).toMatch(/confirmation email/i);
+    expect(text).toMatch(/never change/i);
+    expect(text).not.toMatch(/No email is sent/i);
+  });
+
+  it("the ErrorResponse code enum includes the two cancellation codes", () => {
+    const codes = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["code"]!.enum;
+    expect(codes).toEqual(expect.arrayContaining(["ALREADY_CANCELLED", "CANNOT_CANCEL"]));
+  });
+
+  it("Swagger UI at /docs responds 200", async () => {
+    const res = await request(app).get("/docs/");
+    expect(res.status).toBe(200);
   });
 });

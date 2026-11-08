@@ -10,6 +10,7 @@ import {
   CreateReservationBodySchema,
   ReservationConfirmationSchema,
   ReservationIdParamsSchema,
+  ReservationStatusSchema,
 } from "./reservations.schemas.js";
 
 const TAGS = ["Reservations"];
@@ -20,6 +21,8 @@ export function registerReservationRoutes(
   testHooks?: ReservationTestHooks,
 ): void {
   const controller = createReservationsController(ctx, notifier, testHooks);
+  // Published as a component so clients can see every value a reservation status can take.
+  ctx.registry.register("ReservationStatus", ReservationStatusSchema);
 
   defineRoute(ctx, {
     method: "post",
@@ -38,7 +41,10 @@ export function registerReservationRoutes(
       "`party_too_large`, `no_table_free`). `no_table_free` is also the answer to a request " +
       "that loses a race for the last table to another request. There is no idempotency key: " +
       "repeating a request that had succeeded is refused as a duplicate reservation, and a " +
-      "retry after a 500 may be refused as a duplicate if a hold remains. No email is sent.",
+      "retry after a 500 may be refused as a duplicate if a hold remains. After a successful " +
+      "creation a confirmation email with the details and the cancellation link is sent to the " +
+      "guest in the background; a failure to send it never changes this response. The new " +
+      "reservation has status `confirmed` (see `ReservationStatus`).",
     tags: TAGS,
     auth: false,
     request: { body: { schema: CreateReservationBodySchema, example: CREATE_RESERVATION_EXAMPLE } },

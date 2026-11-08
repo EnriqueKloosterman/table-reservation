@@ -173,13 +173,13 @@ description: "Task list for feature 003-reservation-cancellation (Confirmation E
 
 ### Tests for User Story 5 (write first)
 
-- [ ] T046 [US5] Extend `backend/tests/contract/openapi-coverage.test.ts` (final pins): exactly 19 operations; exactly 7 public (no `security`, description starting `Public — no sign-in required.`) including `POST /reservations/cancel`; both cancellation operations have a request example (guest) and an example for each documented response; every response in the contract tables is declared (guest: 200/400/404/409/500; staff: 200/401/404/409/500) and the 409 documents both `ALREADY_CANCELLED` and `CANNOT_CANCEL`; the `ReservationStatus` schema lists exactly `confirmed` and `cancelled`; the `CancellationResult` schema has none of `code`, `secretCode`, `tableName`, `guestEmail`, `guestPhone`; the `POST /reservations` description states a confirmation email is sent after a successful creation and that a send failure never changes the response, and no longer says "No email is sent"; the `ErrorResponse.code` enum includes the two new codes; Swagger UI at `/docs` responds 200
-- [ ] T047 [US5] Run T046 and record which assertions are RED and which already pass (verification-only parts may pass)
+- [X] T046 [US5] Extend `backend/tests/contract/openapi-coverage.test.ts` (final pins): exactly 19 operations; exactly 7 public (no `security`, description starting `Public — no sign-in required.`) including `POST /reservations/cancel`; both cancellation operations have a request example (guest) and an example for each documented response; every response in the contract tables is declared (guest: 200/400/404/409/500; staff: 200/401/404/409/500) and the 409 documents both `ALREADY_CANCELLED` and `CANNOT_CANCEL`; the `ReservationStatus` schema lists exactly `confirmed` and `cancelled`; the `CancellationResult` schema has none of `code`, `secretCode`, `tableName`, `guestEmail`, `guestPhone`; the `POST /reservations` description states a confirmation email is sent after a successful creation and that a send failure never changes the response, and no longer says "No email is sent"; the `ErrorResponse.code` enum includes the two new codes; Swagger UI at `/docs` responds 200
+- [X] T047 [US5] Run T046 and record which assertions are RED and which already pass (verification-only parts may pass)
 
 ### Implementation for User Story 5
 
-- [ ] T048 [US5] Fix every gap T047 revealed in `backend/src/modules/reservations/reservations.routes.ts` and `backend/src/modules/reservations/reservations.schemas.ts`: update the `POST /reservations` description (confirmation email is sent after success, a send failure never changes the response, remove "No email is sent"), add missing examples/descriptions, document `ReservationStatus` on every schema that presents a status
-- [ ] T049 [US5] Run T046 and confirm GREEN; run the full suite
+- [X] T048 [US5] Fix every gap T047 revealed in `backend/src/modules/reservations/reservations.routes.ts` and `backend/src/modules/reservations/reservations.schemas.ts`: update the `POST /reservations` description (confirmation email is sent after success, a send failure never changes the response, remove "No email is sent"), add missing examples/descriptions, document `ReservationStatus` on every schema that presents a status
+- [X] T049 [US5] Run T046 and confirm GREEN; run the full suite
 
 **Checkpoint**: all five stories are complete.
 

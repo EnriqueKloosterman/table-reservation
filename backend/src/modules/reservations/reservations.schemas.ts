@@ -76,7 +76,7 @@ export const CREATE_RESERVATION_EXAMPLE = {
 export const ReservationConfirmationSchema = z
   .object({
     id: z.string().openapi({ example: "6741a0ffee0123456789abcd" }),
-    status: z.literal("confirmed"),
+    status: z.literal("confirmed").openapi({ description: "Always `confirmed` on creation (see `ReservationStatus`)." }),
     date: z.string().openapi({ example: "2026-11-14" }),
     startTime: z.string().openapi({ example: "20:30" }),
     endTime: z.string().openapi({ example: "22:30" }),
@@ -126,7 +126,7 @@ export const CANCEL_RESERVATION_EXAMPLE = { code: "Yq3k0v8p1Zr7mWbN2xTfH5cJdL9sA
 export const CancellationResultSchema = z
   .object({
     id: z.string().openapi({ example: "6741a0ffee0123456789abcd" }),
-    status: z.literal("cancelled"),
+    status: z.literal("cancelled").openapi({ description: "Always `cancelled` here (see `ReservationStatus`)." }),
     date: z.string().openapi({ description: "Restaurant-local date.", example: "2026-11-14" }),
     startTime: z.string().openapi({ description: "Restaurant-local start time.", example: "20:30" }),
     endTime: z.string().openapi({ description: "Restaurant-local end time.", example: "22:30" }),
