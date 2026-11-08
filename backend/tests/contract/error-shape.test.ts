@@ -1,6 +1,6 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { conflict, noAvailability } from "../../src/shared/errors/app-error.js";
+import { alreadyCancelled, cannotCancel, conflict, noAvailability } from "../../src/shared/errors/app-error.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { expectError } from "../helpers/expect-error.js";
 import { fetchOpenApi } from "../helpers/openapi.js";
@@ -34,6 +34,12 @@ const app = buildTestApp({
     });
     ctx.router.get("/__conflict-plain", () => {
       throw conflict("Plain conflict");
+    });
+    ctx.router.get("/__already-cancelled", () => {
+      throw alreadyCancelled();
+    });
+    ctx.router.get("/__cannot-cancel", () => {
+      throw cannotCancel();
     });
   },
 });
@@ -161,5 +167,29 @@ describe("feature 002: NO_AVAILABILITY and conflict reasons", () => {
     const refs = JSON.stringify(details.oneOf);
     expect(refs).toContain("#/components/schemas/AvailabilityReason");
     expect(refs).toContain("#/components/schemas/ConflictReason");
+  });
+});
+
+describe("feature 003: ALREADY_CANCELLED and CANNOT_CANCEL", () => {
+  it.each([
+    ["ALREADY_CANCELLED", "/__already-cancelled"],
+    ["CANNOT_CANCEL", "/__cannot-cancel"],
+  ] as const)("%s maps to 409 with the standard body and no details", async (code, path) => {
+    const res = await request(app).get(path);
+    const error = expectError(res, 409, code);
+    expect(error.message).toEqual(expect.any(String));
+    expect(error.message.length).toBeGreaterThan(0);
+    expect(error.details).toBeUndefined();
+    expect(error).not.toHaveProperty("details");
+  });
+
+  it("the ErrorResponse.code enum in /openapi.json lists both new codes", async () => {
+    const doc = await fetchOpenApi(app);
+    const schema = doc.components.schemas?.["ErrorResponse"] as {
+      properties: { error: { properties: { code: { enum: string[] } } } };
+    };
+    const codes = schema.properties.error.properties.code.enum;
+    expect(codes).toContain("ALREADY_CANCELLED");
+    expect(codes).toContain("CANNOT_CANCEL");
   });
 });

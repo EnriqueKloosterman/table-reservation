@@ -47,6 +47,9 @@ describe("loadConfig", () => {
       TIME_SLOT_INTERVAL_MINUTES: 15,
       MIN_NOTICE_MINUTES: 60,
       BOOKING_HORIZON_DAYS: 60,
+      EMAIL_TIMEOUT_MS: 10000,
+      RESTAURANT_NAME: "the restaurant",
+      CANCEL_LINK_BASE_URL: "http://localhost:5173/cancel",
     });
   });
 
@@ -186,5 +189,107 @@ describe("loadConfig: booking rules (feature 002, research R1)", () => {
       "RESERVATION_DURATION_MINUTES",
       "TIME_SLOT_INTERVAL_MINUTES",
     ]);
+  });
+});
+
+describe("loadConfig: email and cancellation link (feature 003, research R10)", () => {
+  describe("SMTP_URL and EMAIL_FROM", () => {
+    it("is optional: absent, the config has no SMTP_URL and EMAIL_FROM is ignored", () => {
+      const config = loadConfig({ ...base, EMAIL_FROM: "not even checked" });
+      expect(config.SMTP_URL).toBeUndefined();
+    });
+
+    it("treats an empty SMTP_URL as unset", () => {
+      const config = loadConfig({ ...base, SMTP_URL: "" });
+      expect(config.SMTP_URL).toBeUndefined();
+    });
+
+    it.each(["smtp://mail.test:25", "smtps://user:pw@mail.test:465"])("accepts %s", (url) => {
+      const config = loadConfig({ ...base, SMTP_URL: url, EMAIL_FROM: "noreply@resto.test" });
+      expect(config.SMTP_URL).toBe(url);
+    });
+
+    it.each(["http://mail.test", "mail.test", "not a url", "ftp://mail.test"])("refuses SMTP_URL %j", (url) => {
+      expect(configErrorKeys({ ...base, SMTP_URL: url, EMAIL_FROM: "noreply@resto.test" })).toEqual(["SMTP_URL"]);
+    });
+
+    it("requires EMAIL_FROM when SMTP_URL is set, reporting EMAIL_FROM", () => {
+      expect(configErrorKeys({ ...base, SMTP_URL: "smtp://mail.test" })).toEqual(["EMAIL_FROM"]);
+      expect(configErrorKeys({ ...base, SMTP_URL: "smtp://mail.test", EMAIL_FROM: "" })).toEqual(["EMAIL_FROM"]);
+    });
+
+    it.each(["a@b.c", "La Mesa <noreply@resto.test>"])("accepts EMAIL_FROM %j", (from) => {
+      const config = loadConfig({ ...base, SMTP_URL: "smtp://mail.test", EMAIL_FROM: from });
+      expect(config.EMAIL_FROM).toBe(from);
+    });
+
+    it.each(["nobody", "a@b", "@b.c", "Name <nope>", "a@b.c\nBcc: x@y.z", "a@b.c\r"])(
+      "refuses EMAIL_FROM %j",
+      (from) => {
+        expect(configErrorKeys({ ...base, SMTP_URL: "smtp://mail.test", EMAIL_FROM: from })).toEqual(["EMAIL_FROM"]);
+      },
+    );
+  });
+
+  describe("EMAIL_TIMEOUT_MS", () => {
+    it("defaults to 10000", () => {
+      expect(loadConfig({ ...base }).EMAIL_TIMEOUT_MS).toBe(10000);
+    });
+
+    it("accepts both bounds", () => {
+      expect(loadConfig({ ...base, EMAIL_TIMEOUT_MS: "100" }).EMAIL_TIMEOUT_MS).toBe(100);
+      expect(loadConfig({ ...base, EMAIL_TIMEOUT_MS: "120000" }).EMAIL_TIMEOUT_MS).toBe(120000);
+    });
+
+    it.each(["99", "120001", "1.5", "", "abc", "-1", "1e3"])("refuses %j naming the key", (value) => {
+      expect(configErrorKeys({ ...base, EMAIL_TIMEOUT_MS: value })).toEqual(["EMAIL_TIMEOUT_MS"]);
+    });
+  });
+
+  describe("RESTAURANT_NAME", () => {
+    it("defaults to 'the restaurant'", () => {
+      expect(loadConfig({ ...base }).RESTAURANT_NAME).toBe("the restaurant");
+    });
+
+    it("is trimmed", () => {
+      expect(loadConfig({ ...base, RESTAURANT_NAME: "  La Mesa  " }).RESTAURANT_NAME).toBe("La Mesa");
+    });
+
+    it("accepts 1 and 100 characters", () => {
+      expect(loadConfig({ ...base, RESTAURANT_NAME: "x" }).RESTAURANT_NAME).toBe("x");
+      expect(loadConfig({ ...base, RESTAURANT_NAME: "x".repeat(100) }).RESTAURANT_NAME).toHaveLength(100);
+    });
+
+    it.each(["", "   ", "x".repeat(101), "La\nMesa", "La\rMesa"])("refuses %j", (value) => {
+      expect(configErrorKeys({ ...base, RESTAURANT_NAME: value })).toEqual(["RESTAURANT_NAME"]);
+    });
+  });
+
+  describe("CANCEL_LINK_BASE_URL", () => {
+    it("defaults to http://localhost:5173/cancel", () => {
+      expect(loadConfig({ ...base }).CANCEL_LINK_BASE_URL).toBe("http://localhost:5173/cancel");
+    });
+
+    it.each(["https://resto.test/cancel", "http://localhost:5173/cancel"])("accepts %s", (url) => {
+      expect(loadConfig({ ...base, CANCEL_LINK_BASE_URL: url }).CANCEL_LINK_BASE_URL).toBe(url);
+    });
+
+    it.each(["ftp://resto.test/cancel", "resto.test/cancel", "not a url", "", "https://resto.test/cancel#x", "https://resto.test/cancel#"])(
+      "refuses %j",
+      (url) => {
+        expect(configErrorKeys({ ...base, CANCEL_LINK_BASE_URL: url })).toEqual(["CANCEL_LINK_BASE_URL"]);
+      },
+    );
+  });
+
+  it("never echoes SMTP_URL (it may hold credentials) in a configuration error", () => {
+    try {
+      loadConfig({ ...base, SMTP_URL: "smtp://user:s3cret@mail.test" });
+    } catch (err) {
+      const text = JSON.stringify((err as ConfigError).issues) + (err as ConfigError).message;
+      expect(text).not.toContain("s3cret");
+      return;
+    }
+    throw new Error("loadConfig did not throw");
   });
 });

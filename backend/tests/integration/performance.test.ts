@@ -75,7 +75,7 @@ async function seedReservations(): Promise<void> {
           guestName: "Seed Guest",
           guestEmail: email,
           guestPhone: "600123456",
-          secretCodeHash: "0".repeat(64),
+          secretCodeHash: new Types.ObjectId().toHexString().padStart(64, "0"),
           createdAt: new Date("2026-11-01T00:00:00Z"),
         });
         intervals.push(interval);

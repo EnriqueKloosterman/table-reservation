@@ -1,3 +1,4 @@
+import type { Notifier } from "../notifications/notifier.js";
 import { defineRoute, type RouteContext } from "../../shared/openapi/route.js";
 import { createReservationsController } from "./reservations.controller.js";
 import type { ReservationTestHooks } from "./reservations.ops.js";
@@ -9,8 +10,12 @@ import {
 
 const TAGS = ["Reservations"];
 
-export function registerReservationRoutes(ctx: RouteContext, testHooks?: ReservationTestHooks): void {
-  const controller = createReservationsController(ctx, testHooks);
+export function registerReservationRoutes(
+  ctx: RouteContext,
+  notifier: Notifier,
+  testHooks?: ReservationTestHooks,
+): void {
+  const controller = createReservationsController(ctx, notifier, testHooks);
 
   defineRoute(ctx, {
     method: "post",

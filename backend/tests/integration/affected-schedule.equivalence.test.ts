@@ -66,7 +66,7 @@ describe("affectedBySchedule: the database filter agrees with isInsideSchedule",
         guestName: `Guest ${i}`,
         guestEmail: `g${i}@mail.com`,
         guestPhone: "600123456",
-        secretCodeHash: "0".repeat(64),
+        secretCodeHash: new Types.ObjectId().toHexString().padStart(64, "0"),
         createdAt: NOW,
       };
     });
@@ -104,7 +104,7 @@ describe("affectedBySchedule: the database filter agrees with isInsideSchedule",
       guestName: "G",
       guestEmail: `${date}${startTime}@mail.com`,
       guestPhone: "600123456",
-      secretCodeHash: "0".repeat(64),
+      secretCodeHash: new Types.ObjectId().toHexString().padStart(64, "0"),
       createdAt: NOW,
     });
     await Reservation.insertMany([

@@ -1,3 +1,4 @@
+import type { Notifier } from "../notifications/notifier.js";
 import type { RouteContext, RouteHandler } from "../../shared/openapi/route.js";
 import type { ReservationTestHooks } from "./reservations.ops.js";
 import type { CreateReservationBodySchema } from "./reservations.schemas.js";
@@ -10,9 +11,10 @@ export type ReservationsController = {
 /** HTTP handlers for the public reservation operation. */
 export function createReservationsController(
   { config, clock }: Pick<RouteContext, "config" | "clock">,
+  notifier: Notifier,
   testHooks?: ReservationTestHooks,
 ): ReservationsController {
-  const deps = { config, clock, testHooks };
+  const deps = { config, clock, notifier, testHooks };
   return {
     create: async (_req, res) => {
       const confirmation = await createReservation(res.locals.input.body, deps);

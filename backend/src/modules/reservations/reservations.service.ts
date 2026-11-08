@@ -12,6 +12,7 @@ import {
   checkAvailability,
   fitsInsideAPeriod,
 } from "../availability/availability.domain.js";
+import type { Notifier } from "../notifications/notifier.js";
 import { loadDaySnapshot } from "../availability/availability.snapshot.js";
 import { GuestDay, TableDay } from "./calendar.model.js";
 import type { ClaimModel } from "./interval-claims.js";
@@ -27,6 +28,8 @@ import { generateSecretCode, hashSecretCode } from "./secret-code.js";
 export type ReservationDeps = {
   config: Config;
   clock: Clock;
+  /** Starts emails in the background; callers never await it. */
+  notifier: Notifier;
   /** Test-only; never set by the production wiring. */
   testHooks?: ReservationTestHooks | undefined;
 };

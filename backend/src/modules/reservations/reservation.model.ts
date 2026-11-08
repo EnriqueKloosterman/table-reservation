@@ -12,7 +12,11 @@ const withoutHash = (_doc: unknown, ret: Record<string, unknown>) => {
 
 const reservationSchema = new Schema(
   {
-    status: { type: String, enum: ["confirmed"], default: "confirmed" },
+    status: { type: String, enum: ["confirmed", "cancelled"], default: "confirmed" },
+    /** UTC instant of the cancellation, from the injected clock; `null` while confirmed. */
+    cancelledAt: { type: Date, default: null },
+    /** Who cancelled; `null` while confirmed. */
+    cancelledBy: { type: String, enum: ["guest", "staff"], default: null },
     /** Kept when the table is later soft-deleted (FR-018). */
     tableId: { type: Schema.Types.ObjectId, ref: "Table", required: true },
     // Restaurant-local text snapshots; `startAt`/`endAt` are the UTC instants.
@@ -43,5 +47,7 @@ const reservationSchema = new Schema(
 reservationSchema.index({ tableId: 1, endAt: 1 });
 reservationSchema.index({ endAt: 1 });
 reservationSchema.index({ date: 1 });
+// The guest looks a reservation up by the hash of the code, so it must be unique (research R6).
+reservationSchema.index({ secretCodeHash: 1 }, { unique: true });
 
 export const Reservation = registerModel(model("Reservation", reservationSchema));

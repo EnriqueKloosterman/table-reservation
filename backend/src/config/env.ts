@@ -30,7 +30,10 @@ function wholeNumber(min: number, max: number, defaultValue: number) {
     .default(defaultValue);
 }
 
-const EnvSchema = z.object({
+/** `a@b.c` or `Name <a@b.c>`; no CR/LF can match any part of it. */
+const MAILBOX = /^(?:[^\s<>@"]+@[^\s<>@"]+\.[^\s<>@"]+|[^<>\r\n]+<[^\s<>@"]+@[^\s<>@"]+\.[^\s<>@"]+>)$/;
+
+const EnvObject = z.object({
   MONGODB_URI: z.string().min(1),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().regex(DURATION_REGEX).default("8h"),
@@ -51,6 +54,38 @@ const EnvSchema = z.object({
   TIME_SLOT_INTERVAL_MINUTES: wholeNumber(5, 120, 15),
   MIN_NOTICE_MINUTES: wholeNumber(0, 1440, 60),
   BOOKING_HORIZON_DAYS: wholeNumber(1, 365, 60),
+  // Confirmation and cancellation emails (feature 003, research R10).
+  // An empty SMTP_URL counts as unset. It may hold credentials: it is never logged.
+  SMTP_URL: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? undefined : v))
+    .pipe(z.url({ protocol: /^smtps?$/, message: "Must be a smtp:// or smtps:// URL" }).optional()),
+  EMAIL_FROM: z.string().optional(),
+  EMAIL_TIMEOUT_MS: wholeNumber(100, 120000, 10000),
+  RESTAURANT_NAME: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^[^\r\n]*$/, "Must not contain line breaks")
+    .default("the restaurant"),
+  CANCEL_LINK_BASE_URL: z
+    .url({ protocol: /^https?$/, message: "Must be an http(s) URL" })
+    .refine((u) => !u.includes("#"), "Must not contain a fragment")
+    .default("http://localhost:5173/cancel"),
+});
+
+/** EMAIL_FROM is required (and must be a valid mailbox) only when SMTP_URL is set. */
+const EnvSchema = EnvObject.superRefine((env, ctx) => {
+  if (env.SMTP_URL === undefined) return;
+  if (env.EMAIL_FROM === undefined || !MAILBOX.test(env.EMAIL_FROM)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EMAIL_FROM"],
+      message: "Required with SMTP_URL: an address such as a@b.c or Name <a@b.c>",
+    });
+  }
 });
 
 export type Config = z.output<typeof EnvSchema> & { jwtExpiresInSeconds: number };

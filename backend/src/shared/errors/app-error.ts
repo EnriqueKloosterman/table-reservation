@@ -5,6 +5,8 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "NO_AVAILABILITY"
+  | "ALREADY_CANCELLED"
+  | "CANNOT_CANCEL"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -15,6 +17,8 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   NO_AVAILABILITY: 409,
+  ALREADY_CANCELLED: 409,
+  CANNOT_CANCEL: 409,
   SERVICE_UNAVAILABLE: 503,
   INTERNAL_ERROR: 500,
 };
@@ -71,6 +75,14 @@ export function conflict(message: string, details?: { reason: ConflictReason }):
 
 export function noAvailability(reason: AvailabilityReason): AppError {
   return new AppError("NO_AVAILABILITY", "The requested time is not available", { reason });
+}
+
+export function alreadyCancelled(): AppError {
+  return new AppError("ALREADY_CANCELLED", "The reservation is already cancelled");
+}
+
+export function cannotCancel(): AppError {
+  return new AppError("CANNOT_CANCEL", "The reservation has already started or ended and cannot be cancelled");
 }
 
 export function serviceUnavailable(): AppError {
