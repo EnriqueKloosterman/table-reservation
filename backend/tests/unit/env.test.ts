@@ -282,12 +282,18 @@ describe("loadConfig: email and cancellation link (feature 003, research R10)", 
     );
   });
 
-  it("never echoes SMTP_URL (it may hold credentials) in a configuration error", () => {
+  it.each([
+    ["a valid URL with a missing EMAIL_FROM", "smtp://user:s3cret@mail.test", undefined],
+    ["a wrong protocol", "http://user:s3cret@mail.test", "noreply@resto.test"],
+    ["a non-URL string", "s3cret-is-not-a-url", "noreply@resto.test"],
+    ["a wrong protocol and an invalid EMAIL_FROM", "http://user:s3cret@mail.test", "nope"],
+  ])("never echoes SMTP_URL (it may hold credentials) in a configuration error: %s", (_label, url, from) => {
     try {
-      loadConfig({ ...base, SMTP_URL: "smtp://user:s3cret@mail.test" });
+      loadConfig({ ...base, SMTP_URL: url, EMAIL_FROM: from });
     } catch (err) {
       const text = JSON.stringify((err as ConfigError).issues) + (err as ConfigError).message;
       expect(text).not.toContain("s3cret");
+      expect(text).not.toContain("mail.test");
       return;
     }
     throw new Error("loadConfig did not throw");

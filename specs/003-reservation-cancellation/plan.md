@@ -137,7 +137,10 @@ transport). The service receives the notifier as a dependency (`ReservationDeps.
 `EmailSender.send({ to, subject, text }, meta?)`. `createEmailSender(config)` returns
 `NodemailerSender` (transport built from `{ url: SMTP_URL, connectionTimeout,
 greetingTimeout, socketTimeout = EMAIL_TIMEOUT_MS }`; **no startup verify call**, so an
-unreachable server never blocks start) or `NoopEmailSender`. Renderers are pure; notifier
+unreachable server never blocks start) or `NoopEmailSender`. `createEmailSender`,
+`NoopEmailSender` and `createNotifier` take an optional `Clock` (default `systemClock`, the
+one place that reads the system time) so the `at` field of every log line comes from the
+injected clock, never from `new Date()`. Renderers are pure; notifier
 semantics in [R4](./research.md#r4-notifier-never-fail-delay-or-leak), content rules in
 [R5](./research.md#r5-email-content-and-security).
 
@@ -205,8 +208,15 @@ document; it never contains the code, hash or table name.
 
 ## Complexity Tracking
 
-No constitution deviation. The following existing tests change because counts and public
-sets are pinned:
+No constitution deviation. One reading is recorded explicitly (decided 2026-11-08, T056):
+Constitution V says SMTP "unavailability, slowness or misconfiguration" never prevents
+startup. This plan reads that as the *transport*: an unreachable, slow or rejecting server
+only produces logged `email_failed` lines and never blocks startup (no `verify()` call). A
+*structurally invalid* configuration (`SMTP_URL` that is not an `smtp:`/`smtps:` URL, or
+`SMTP_URL` set without a valid `EMAIL_FROM`) is a configuration error and fails fast at
+startup like any other invalid environment key (Stack and constraints: "fail fast on invalid
+configuration"). With `SMTP_URL` absent the application starts and skips emails. The
+following existing tests change because counts, public sets and unique data are pinned:
 
 | Change | Principle | Why it is needed | Mitigation |
 |---|---|---|---|
@@ -215,4 +225,5 @@ sets are pinned:
 | `tests/contract/error-shape.test.ts` / any test enumerating `ErrorCode` or the `ErrorResponse` enum. | IV | Two codes are added. | Updated with the codes (US2). |
 | `tests/helpers/build-test-app.ts` builds a `Config` literal. | II | `Config` gains five keys. | Defaults added; new `emailSender` and `onNotifier` options are optional, so every existing call stays valid. |
 | `ReservationConfirmationSchema.status` stays `z.literal("confirmed")` (creation always yields `confirmed`); the new `ReservationStatus` enum (`confirmed`, `cancelled`) is used by the model and documented. | I | Keeps the creation contract unchanged while FR-019 documents both values. | Contract test asserts the enum lists both. |
+| `tests/integration/affected-schedule.equivalence.test.ts` and `tests/integration/performance.test.ts` bulk-insert reservations. | II | `secretCodeHash` is now a unique index (T013); these suites gave every row the same hash (`"0".repeat(64)`). | Each inserted row gets a unique hash (`new Types.ObjectId().toHexString().padStart(64, "0")`); no assertion changed. |
 | Verification-only suites (`auth-coverage`, `error-shape`, `performance`) may pass when first extended, as in 001/002. | II | They check cross-cutting properties of operations built in US2–US3. | Same recorded mutation check as 001/002. |

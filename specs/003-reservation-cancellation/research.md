@@ -23,6 +23,9 @@ records what was chosen, why, and what was rejected.
   separate DefinitelyTyped major that would only duplicate (and could contradict) the bundled
   types, so it is not installed. This deviates from the plan input (which listed it as a dev
   dependency) because the premise ("verify before locking") showed it is unnecessary.
+- Installed and verified version: npm resolved `^10.3` to **10.4.0** and rewrote the range in
+  `backend/package.json` to `^10.4.0`; that range is accepted (decided 2026-11-08, converge
+  T059). Bundled typings were re-checked on 10.4.0 (`tsc --noEmit` clean without `@types`).
 - Runtime smoke test: sending to a closed port rejects with `error.code === "ESOCKET"`,
   which is what the notifier logs as `reason` (R4).
 - API detail that matters: `createTransport(url, defaults)` takes mail *defaults* as its

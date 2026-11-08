@@ -91,7 +91,7 @@ export async function createReservation(
 
 async function reserve(
   { date, time, partySize, name, email, phone }: CreateReservationInput,
-  { config, clock, testHooks }: ReservationDeps,
+  { config, clock, testHooks, notifier }: ReservationDeps,
 ): Promise<ReservationConfirmation> {
   const ops: ReservationOps = { ...defaultReservationOps, ...testHooks?.ops };
   const timeZone = config.RESTAURANT_TIME_ZONE;
@@ -240,7 +240,7 @@ async function reserve(
     }
 
     // 10. Confirmation, including the plain secret code (returned only here).
-    return {
+    const confirmation: ReservationConfirmation = {
       id: reservationId.toHexString(),
       status: "confirmed",
       date,
@@ -252,6 +252,13 @@ async function reserve(
       createdAt: createdAt.toISOString(),
       secretCode,
     };
+    // 11. The email starts in the background and is never awaited (FR-003). It is the last step,
+    // after the post-store verification, so a refused or failed request never reaches it.
+    notifier.notifyConfirmation(
+      { id: confirmation.id, guestName: name, guestEmail: email, date, startTime: time, endTime, partySize },
+      secretCode,
+    );
+    return confirmation;
   } catch (err) {
     await releaseHeld();
     throw err;
