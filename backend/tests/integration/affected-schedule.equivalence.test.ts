@@ -113,6 +113,31 @@ describe("affectedBySchedule: the database filter agrees with isInsideSchedule",
       make("2026-11-01", "20:00", "22:00"), // ended
     ]);
     const closedWeek = DAYS.map((day) => ({ day, periods: [] }));
-    expect(await affectedBySchedule(closedWeek, NOW)).toHaveLength(2);
+    const affected = await affectedBySchedule(closedWeek, NOW);
+    expect(affected).toHaveLength(2);
+    for (const item of affected) expect(item.status).toBe("confirmed");
+  });
+
+  it("a cancelled reservation is never reported, even when it falls outside the new schedule", async () => {
+    const base = {
+      tableId: new Types.ObjectId(),
+      date: "2026-11-14",
+      startTime: "20:00",
+      endTime: "22:00",
+      startAt: new Date("2026-11-14T20:00:00Z"),
+      endAt: new Date("2026-11-14T22:00:00Z"),
+      partySize: 2,
+      guestName: "G",
+      guestPhone: "600123456",
+      createdAt: NOW,
+    };
+    await Reservation.insertMany([
+      { ...base, guestEmail: "keep@mail.com", secretCodeHash: "a".repeat(64) },
+      { ...base, guestEmail: "gone@mail.com", secretCodeHash: "b".repeat(64), status: "cancelled", cancelledAt: NOW, cancelledBy: "guest" },
+    ]);
+    const closedWeek = DAYS.map((day) => ({ day, periods: [] }));
+    const affected = await affectedBySchedule(closedWeek, NOW);
+    expect(affected).toHaveLength(1);
+    expect(affected[0]?.status).toBe("confirmed");
   });
 });

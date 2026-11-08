@@ -13,6 +13,9 @@ export const AffectedReservationSchema = z
     partySize: z.number().int().openapi({ example: 6 }),
     guestName: z.string().openapi({ example: "Ana García" }),
     tableName: z.string().openapi({ example: "T5" }),
+    status: z.literal("confirmed").openapi({
+      description: "Always `confirmed`: cancelled reservations are never listed (see `ReservationStatus`).",
+    }),
   })
   .openapi("AffectedReservation");
 

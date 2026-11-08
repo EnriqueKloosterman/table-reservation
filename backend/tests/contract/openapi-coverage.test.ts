@@ -293,7 +293,7 @@ describe("US5 / FR-024: the three changed responses include affectedReservations
     expect(refName(affected.items?.$ref)).toBe("AffectedReservation");
   });
 
-  it("an affected reservation shows id, date, start and end time, party size, guest name and table name", () => {
+  it("an affected reservation shows id, date, start and end time, party size, guest name, table name and status", () => {
     const item = schemas()["AffectedReservation"]!;
     expect(Object.keys(item.properties!).sort()).toEqual([
       "date",
@@ -302,6 +302,7 @@ describe("US5 / FR-024: the three changed responses include affectedReservations
       "id",
       "partySize",
       "startTime",
+      "status",
       "tableName",
     ]);
   });

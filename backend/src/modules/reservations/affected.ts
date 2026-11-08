@@ -6,6 +6,7 @@ import { Reservation } from "./reservation.model.js";
 
 /**
  * Reports for staff changes that may contradict upcoming reservations (FR-022, research R11).
+ * Only `confirmed` reservations are reported: a cancelled one no longer holds anything (US4).
  * Each query is computed after the change was written, lists only reservations that have not
  * ended (`endAt > now`), never modifies anything, and is complete and ordered by start
  * instant, then by id.
@@ -38,12 +39,13 @@ async function toReport(docs: StoredReservation[]): Promise<AffectedReservation[
     partySize: d.partySize,
     guestName: d.guestName,
     tableName: names.get(d.tableId.toHexString()) ?? "",
+    status: "confirmed" as const, // only confirmed reservations are ever reported
   }));
 }
 
 /** Upcoming reservations on a newly closed date. */
 export async function affectedByClosedDate(date: string, now: Date): Promise<AffectedReservation[]> {
-  return toReport(await Reservation.find({ date, endAt: { $gt: now } }).lean());
+  return toReport(await Reservation.find({ date, status: "confirmed", endAt: { $gt: now } }).lean());
 }
 
 /** Upcoming reservations no longer fully inside a service period of their weekday. */
@@ -77,7 +79,7 @@ export async function affectedBySchedule(days: DaySchedule[], now: Date): Promis
     },
   };
   const affected = await Reservation.aggregate<{ _id: Types.ObjectId }>([
-    { $match: { endAt: { $gt: now } } },
+    { $match: { status: "confirmed", endAt: { $gt: now } } },
     {
       $match: {
         $expr: {
@@ -91,7 +93,7 @@ export async function affectedBySchedule(days: DaySchedule[], now: Date): Promis
     { $project: { _id: 1 } },
   ]);
   if (affected.length === 0) return [];
-  return toReport(await Reservation.find({ _id: { $in: affected.map((r) => r._id) } }).lean());
+  return toReport(await Reservation.find({ _id: { $in: affected.map((r) => r._id) }, status: "confirmed" }).lean());
 }
 
 /** Upcoming reservations on a table whose party no longer fits its new capacity. */
@@ -101,6 +103,11 @@ export async function affectedByCapacity(
   now: Date,
 ): Promise<AffectedReservation[]> {
   return toReport(
-    await Reservation.find({ tableId, endAt: { $gt: now }, partySize: { $gt: newCapacity } }).lean(),
+    await Reservation.find({
+      tableId,
+      status: "confirmed",
+      endAt: { $gt: now },
+      partySize: { $gt: newCapacity },
+    }).lean(),
   );
 }
