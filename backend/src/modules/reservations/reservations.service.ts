@@ -2,9 +2,12 @@ import { Types, Error as MongooseError } from "mongoose";
 import type { Config } from "../../config/env.js";
 import type { Clock } from "../../shared/clock.js";
 import {
+  alreadyCancelled,
   AppError,
+  cannotCancel,
   conflict,
   noAvailability,
+  notFound,
   type AvailabilityReason,
 } from "../../shared/errors/app-error.js";
 import { dayOfWeek, localToUtc, overlaps, utcToLocal } from "../../shared/time/local-time.js";
@@ -16,13 +19,18 @@ import type { Notifier } from "../notifications/notifier.js";
 import { loadDaySnapshot } from "../availability/availability.snapshot.js";
 import { GuestDay, TableDay } from "./calendar.model.js";
 import type { ClaimModel } from "./interval-claims.js";
+import { Reservation } from "./reservation.model.js";
 import {
   defaultReservationOps,
   type ConfigState,
   type ReservationOps,
   type ReservationTestHooks,
 } from "./reservations.ops.js";
-import type { CreateReservationInput, ReservationConfirmation } from "./reservations.schemas.js";
+import type {
+  CancellationResult,
+  CreateReservationInput,
+  ReservationConfirmation,
+} from "./reservations.schemas.js";
 import { generateSecretCode, hashSecretCode } from "./secret-code.js";
 
 export type ReservationDeps = {
@@ -263,4 +271,142 @@ async function reserve(
     await releaseHeld();
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cancellation (feature 003, research R2, R3, R7)
+// ---------------------------------------------------------------------------------------------
+
+/** Who is cancelling and how the reservation is identified. */
+export type CancelTarget = { by: "guest"; code: string } | { by: "staff"; id: string };
+
+const OBJECT_ID = /^[0-9a-f]{24}$/i;
+const NOT_FOUND_MESSAGE = "Reservation not found";
+
+/** The fields the cancellation reads from a stored reservation (never the code or its hash). */
+type CancelRecord = {
+  _id: Types.ObjectId;
+  tableId: Types.ObjectId;
+  date: string;
+  startTime: string;
+  endTime: string;
+  startAt: Date;
+  partySize: number;
+  guestName: string;
+  guestEmail: string;
+  status: string;
+  cancelledAt?: Date | null | undefined;
+};
+
+/** A string-only name for logs: error messages can hold addresses or codes and are never read. */
+const errorName = (err: unknown): string => (err instanceof Error ? err.name : "Unknown");
+
+/**
+ * Cancels an upcoming confirmed reservation. The status flip is one atomic conditional write
+ * and happens BEFORE the releases (R2), so concurrent callers produce exactly one winner and a
+ * failed release can only hide a time, never double-book it. Only the winner releases and
+ * emails. A cancellation that cannot release everything is an INTERNAL_ERROR with no email, and
+ * a later request carrying the same code repairs the release (R3).
+ */
+export async function cancelReservation(target: CancelTarget, deps: ReservationDeps): Promise<CancellationResult> {
+  try {
+    return await cancel(target, deps);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    console.error(JSON.stringify({ event: "cancel_failed", reason: errorName(err) }));
+    throw internalError();
+  }
+}
+
+async function cancel(target: CancelTarget, deps: ReservationDeps): Promise<CancellationResult> {
+  const { clock, notifier, testHooks } = deps;
+  const ops: ReservationOps = { ...defaultReservationOps, ...testHooks?.ops };
+  const now = clock.now(); // read once per request
+
+  // 1. Resolve. The code is hashed exactly as sent, so every non-matching string behaves alike.
+  let found: { _id: Types.ObjectId } | null;
+  if (target.by === "guest") {
+    found = await Reservation.findOne({ secretCodeHash: hashSecretCode(target.code) }, { _id: 1 }).lean();
+  } else {
+    found = OBJECT_ID.test(target.id) ? await Reservation.findById(target.id, { _id: 1 }).lean() : null;
+  }
+  if (!found) throw notFound(NOT_FOUND_MESSAGE);
+
+  // 2. The atomic claim: the single gate among any number of simultaneous callers (FR-015).
+  const claimed: CancelRecord | null = await Reservation.findOneAndUpdate(
+    { _id: found._id, status: "confirmed", startAt: { $gt: now } },
+    { $set: { status: "cancelled", cancelledAt: now, cancelledBy: target.by } },
+    { new: true },
+  ).lean();
+
+  if (!claimed) {
+    // 3. Lost or refused: one re-read decides the answer.
+    const current: CancelRecord | null = await Reservation.findById(found._id).lean();
+    if (!current) throw notFound(NOT_FOUND_MESSAGE);
+    if (current.status === "cancelled") {
+      // Repair release: idempotent, changes no state, sends no email.
+      if (!(await releaseBoth(current, ops))) throw internalError();
+      throw alreadyCancelled();
+    }
+    if (current.startAt.getTime() <= now.getTime()) throw cannotCancel();
+    throw internalError(); // unreachable: confirmed and upcoming would have been claimed
+  }
+
+  // 4. The winner releases the table and the guest slot; never report success otherwise.
+  if (!(await releaseBoth(claimed, ops))) throw internalError();
+
+  // 5. Email in the background, never awaited (FR-003, FR-014).
+  notifier.notifyCancellation({
+    id: claimed._id.toHexString(),
+    guestName: claimed.guestName,
+    guestEmail: claimed.guestEmail,
+    date: claimed.date,
+    startTime: claimed.startTime,
+    endTime: claimed.endTime,
+    partySize: claimed.partySize,
+    cancelledBy: target.by,
+  });
+
+  return {
+    id: claimed._id.toHexString(),
+    status: "cancelled",
+    date: claimed.date,
+    startTime: claimed.startTime,
+    endTime: claimed.endTime,
+    partySize: claimed.partySize,
+    cancelledAt: (claimed.cancelledAt ?? now).toISOString(),
+  };
+}
+
+/** Releases the table interval and the guest interval; both are always attempted (R3). */
+async function releaseBoth(record: CancelRecord, ops: ReservationOps): Promise<boolean> {
+  const holds = [
+    { kind: "table", model: TableDay, key: { tableId: record.tableId, date: record.date } },
+    { kind: "guest", model: GuestDay, key: { email: record.guestEmail, date: record.date } },
+  ] as const;
+  let allReleased = true;
+  for (const hold of holds) {
+    let failure: unknown;
+    let released = false;
+    for (let attempt = 0; attempt < 2 && !released; attempt++) {
+      try {
+        await ops.release(hold.model, hold.key, record._id);
+        released = true;
+      } catch (err) {
+        failure = err;
+      }
+    }
+    if (!released) {
+      allReleased = false;
+      console.error(
+        JSON.stringify({
+          event: "release_failed",
+          reservationId: record._id.toHexString(),
+          kind: hold.kind,
+          reason: errorName(failure),
+        }),
+      );
+    }
+  }
+  return allReleased;
 }

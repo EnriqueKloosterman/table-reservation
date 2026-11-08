@@ -47,6 +47,7 @@ describe("SC-002: authentication coverage", () => {
       "GET /openapi.json",
       "POST /auth/login",
       "POST /reservations",
+      "POST /reservations/cancel",
     ]);
   });
 
@@ -100,15 +101,16 @@ describe("feature 002: the new operations are public", () => {
     "GET /openapi.json",
     "POST /auth/login",
     "POST /reservations",
+    "POST /reservations/cancel",
   ];
 
-  it("the public set is exactly the six operations", () => {
+  it("the public set is exactly the seven operations", () => {
     const publicOps = operationsOf(doc)
       .filter((o) => (o.op.security ?? []).length === 0)
       .map((o) => o.key)
       .sort();
     expect(publicOps).toEqual(FINAL_PUBLIC);
-    expect(publicOps).toHaveLength(6);
+    expect(publicOps).toHaveLength(7);
   });
 
   it("no staff operation became public", () => {
@@ -129,6 +131,16 @@ describe("feature 002: the new operations are public", () => {
       expect(res.status).toBe(400);
       expectError(res, 400, "VALIDATION_ERROR");
     }
+  });
+
+  it("POST /reservations/cancel works without a token: it answers 400/404, never 401", async () => {
+    const missing = await request(app).post("/reservations/cancel").send({});
+    expectError(missing, 400, "VALIDATION_ERROR");
+    const withBogus = await request(app)
+      .post("/reservations/cancel")
+      .set("Authorization", "Bearer not-a-token")
+      .send({ code: "x" });
+    expect(withBogus.status).not.toBe(401);
   });
 
   it("a bogus bearer token on a new operation is ignored, not rejected", async () => {

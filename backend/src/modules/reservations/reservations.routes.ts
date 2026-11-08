@@ -3,6 +3,9 @@ import { defineRoute, type RouteContext } from "../../shared/openapi/route.js";
 import { createReservationsController } from "./reservations.controller.js";
 import type { ReservationTestHooks } from "./reservations.ops.js";
 import {
+  CANCEL_RESERVATION_EXAMPLE,
+  CancelBodySchema,
+  CancellationResultSchema,
   CREATE_RESERVATION_EXAMPLE,
   CreateReservationBodySchema,
   ReservationConfirmationSchema,
@@ -45,5 +48,33 @@ export function registerReservationRoutes(
     },
     errors: ["VALIDATION_ERROR", "CONFLICT", "NO_AVAILABILITY"],
     handler: controller.create,
+  });
+
+  // Declared before any `/reservations/:id...` route so `cancel` is never read as an id.
+  defineRoute(ctx, {
+    method: "post",
+    path: "/reservations/cancel",
+    summary: "Cancel a reservation with its secret code",
+    description:
+      "Public — no sign-in required. Cancels an upcoming confirmed reservation identified by " +
+      "the secret code from its confirmation email. The code is accepted only in the request " +
+      "body, never in the URL, so it does not end up in logs or browser history. On success " +
+      "the table and the guest's time slot are released at once and the guest receives a " +
+      "cancellation email (a failure to send it never changes the answer). Refusal order: " +
+      "validation (400), unknown code (404 `NOT_FOUND`, one generic answer for every code that " +
+      "matches nothing), then 409: `ALREADY_CANCELLED` (safe to repeat, changes nothing) takes " +
+      "precedence over `CANNOT_CANCEL` (the start time has been reached or passed). If the " +
+      "release cannot be completed the answer is 500 and a repeated request with the same code " +
+      "repairs it. The response is never cached.",
+    tags: TAGS,
+    auth: false,
+    request: { body: { schema: CancelBodySchema, example: CANCEL_RESERVATION_EXAMPLE } },
+    success: {
+      status: 200,
+      description: "The reservation is now cancelled.",
+      schema: CancellationResultSchema,
+    },
+    errors: ["VALIDATION_ERROR", "NOT_FOUND", "ALREADY_CANCELLED", "CANNOT_CANCEL"],
+    handler: controller.cancelByCode,
   });
 }

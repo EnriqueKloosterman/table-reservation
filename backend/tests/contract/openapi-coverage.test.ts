@@ -29,6 +29,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "GET /availability": [400, 500],
   "GET /availability/times": [400, 500],
   "POST /reservations": [400, 409, 500],
+  "POST /reservations/cancel": [400, 404, 409, 500],
 };
 
 type Layer = {
@@ -62,10 +63,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 17 operations", () => {
+  it("documents exactly the mounted routes, 18 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(17);
+    expect(documented).toHaveLength(18);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
@@ -338,5 +339,72 @@ describe("US5 / FR-013: the secret code appears only in the creation response", 
   it("the property says it is shown only once", () => {
     const secret = schemas()["ReservationConfirmation"]!.properties!["secretCode"]!;
     expect(secret.description).toMatch(/only here/i);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US2): the public guest cancellation.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / FR-023: POST /reservations/cancel is documented as public", () => {
+  const key = "POST /reservations/cancel";
+
+  it("is public: no security requirement and a description that says so", () => {
+    const { op } = byKey(key);
+    expect(op.summary?.trim()).toBeTruthy();
+    expect(op.description).toMatch(/^Public — no sign-in required\./);
+    expect(op.security ?? []).toHaveLength(0);
+  });
+
+  it("states that the code is accepted only in the body, never in the URL", () => {
+    const text = byKey(key).op.description ?? "";
+    expect(text).toMatch(/body/i);
+    expect(text).toMatch(/never in the URL|not in the URL|never.*URL/i);
+  });
+
+  it("has a request example with the code field", () => {
+    const media = byKey(key).op.requestBody?.content?.["application/json"];
+    expect(media?.example).toBeDefined();
+    expect(Object.keys(media?.example as object)).toEqual(["code"]);
+  });
+
+  it("documents 200 and the error statuses 400, 404, 409 and 500 with their codes", () => {
+    const { responses } = byKey(key).op;
+    expect(Object.keys(responses).sort()).toEqual(["200", "400", "404", "409", "500"]);
+    expect(refName(responses["200"]!.content?.["application/json"]?.schema?.$ref)).toBe("CancellationResult");
+    for (const status of ["400", "404", "409", "500"]) {
+      expect(responses[status]!.content?.["application/json"]?.schema?.$ref, status).toBe(ERROR_REF);
+    }
+    expect(responses["400"]!.description).toContain("`VALIDATION_ERROR`");
+    expect(responses["404"]!.description).toContain("`NOT_FOUND`");
+    expect(responses["409"]!.description).toContain("`ALREADY_CANCELLED`");
+    expect(responses["409"]!.description).toContain("`CANNOT_CANCEL`");
+    expect(responses["500"]!.description).toContain("`INTERNAL_ERROR`");
+  });
+
+  it("the CancellationResult component has exactly the documented fields and no code, hash or contact data", () => {
+    const result = schemas()["CancellationResult"]!;
+    expect(Object.keys(result.properties!).sort()).toEqual([
+      "cancelledAt",
+      "date",
+      "endTime",
+      "id",
+      "partySize",
+      "startTime",
+      "status",
+    ]);
+    expect(result.properties!["status"]!.enum ?? [(result.properties!["status"] as { const?: string }).const]).toContain(
+      "cancelled",
+    );
+    const text = JSON.stringify(result);
+    for (const forbidden of ["secretCode", "secretCodeHash", "guest", "table", "email", "phone"]) {
+      expect(text, forbidden).not.toContain(`"${forbidden}"`);
+    }
+  });
+
+  it("the new error codes are listed in ErrorResponse", () => {
+    const codes = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["code"]!.enum;
+    expect(codes).toContain("ALREADY_CANCELLED");
+    expect(codes).toContain("CANNOT_CANCEL");
   });
 });

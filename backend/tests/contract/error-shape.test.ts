@@ -2,9 +2,14 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { alreadyCancelled, cannotCancel, conflict, noAvailability } from "../../src/shared/errors/app-error.js";
 import { buildTestApp } from "../helpers/build-test-app.js";
+import { cancelWithCode } from "../helpers/cancel-as.js";
+import { reserveAs } from "../helpers/reserve-as.js";
+import { seedRestaurant } from "../helpers/seed-restaurant.js";
 import { expectError } from "../helpers/expect-error.js";
 import { fetchOpenApi } from "../helpers/openapi.js";
 import { loginAs } from "../helpers/login-as.js";
+import { GuestDay, TableDay } from "../../src/modules/reservations/calendar.model.js";
+import { Reservation } from "../../src/modules/reservations/reservation.model.js";
 import { seedStaff } from "../helpers/seed-staff.js";
 import { useTestDatabase } from "../setup/db.js";
 
@@ -191,5 +196,48 @@ describe("feature 003: ALREADY_CANCELLED and CANNOT_CANCEL", () => {
     const codes = schema.properties.error.properties.code.enum;
     expect(codes).toContain("ALREADY_CANCELLED");
     expect(codes).toContain("CANNOT_CANCEL");
+  });
+});
+
+describe("feature 003: the guest cancellation answers use the standard error shape", () => {
+  let now = new Date("2026-11-09T10:00:00Z");
+  const cancelApp = buildTestApp({ now: () => now });
+
+  beforeEach(async () => {
+    now = new Date("2026-11-09T10:00:00Z");
+    await seedRestaurant({
+      tables: [{ name: "T1", capacity: 2 }],
+      schedule: { saturday: [{ name: "Dinner", start: "18:00", end: "23:30" }] },
+    });
+  });
+
+  it("an unknown code is a 404 NOT_FOUND without details", async () => {
+    const error = expectError(await cancelWithCode(cancelApp, "nope"), 404, "NOT_FOUND");
+    expect(error.message).toBe("Reservation not found");
+    expect(error).not.toHaveProperty("details");
+  });
+
+  it("a missing code is a 400 VALIDATION_ERROR with field details", async () => {
+    const res = await request(cancelApp).post("/reservations/cancel").send({});
+    const error = expectError(res, 400, "VALIDATION_ERROR");
+    expect((error.details as { field: string }[]).map((d) => d.field)).toEqual(["code"]);
+  });
+
+  it("an already cancelled and a started reservation are 409 with their own codes and no details", async () => {
+    const created = await reserveAs(cancelApp, { date: "2026-11-14", time: "18:00" });
+    const code = (created.body as { secretCode: string }).secretCode;
+    expect((await cancelWithCode(cancelApp, code)).status).toBe(200);
+    const again = expectError(await cancelWithCode(cancelApp, code), 409, "ALREADY_CANCELLED");
+    expect(again).not.toHaveProperty("details");
+
+    await Promise.all([Reservation.deleteMany({}), TableDay.deleteMany({}), GuestDay.deleteMany({})]);
+    const second = await reserveAs(cancelApp, { date: "2026-11-14", time: "18:00", email: "b@mail.com" });
+    now = new Date("2026-11-14T18:30:00Z");
+    const started = expectError(
+      await cancelWithCode(cancelApp, (second.body as { secretCode: string }).secretCode),
+      409,
+      "CANNOT_CANCEL",
+    );
+    expect(started).not.toHaveProperty("details");
   });
 });
