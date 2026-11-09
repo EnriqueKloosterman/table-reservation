@@ -8,8 +8,10 @@ import {
   CancellationResultSchema,
   CREATE_RESERVATION_EXAMPLE,
   CreateReservationBodySchema,
+  DayViewSchema,
   ReservationConfirmationSchema,
   ReservationIdParamsSchema,
+  ReservationListQuerySchema,
   ReservationStatusSchema,
 } from "./reservations.schemas.js";
 
@@ -111,5 +113,24 @@ export function registerReservationRoutes(
     },
     errors: ["NOT_FOUND", "ALREADY_CANCELLED", "CANNOT_CANCEL"],
     handler: controller.cancelByStaff,
+  });
+
+  defineRoute(ctx, {
+    method: "get",
+    path: "/reservations",
+    summary: "List the reservations of one day (staff)",
+    description:
+      "Staff sign-in required. Lists the reservations of one restaurant-local date, ordered by " +
+      "start time (ties: table name in natural order, then id). `status` chooses `confirmed` " +
+      "(default), `all` or `cancelled`. The `summary` counts confirmed reservations only under " +
+      "every status choice, so it is identical for all three. Any valid date is accepted, past " +
+      "or future; a day without matches answers 200 with an empty list and a zero summary. The " +
+      "response contains guests' personal data and is never cached. Read-only.",
+    tags: TAGS,
+    auth: true,
+    request: { query: ReservationListQuerySchema },
+    success: { status: 200, description: "The day view.", schema: DayViewSchema },
+    errors: ["VALIDATION_ERROR"],
+    handler: controller.list,
   });
 }
