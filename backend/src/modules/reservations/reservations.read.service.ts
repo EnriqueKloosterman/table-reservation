@@ -43,10 +43,10 @@ const UNKNOWN_TABLE = "unknown";
  * The reservations of one restaurant-local date. ONE read for all statuses and ONE read for the
  * table names (removed tables included), so the list and the summary come from one snapshot.
  *
- * Feature 004 US1: only the default `confirmed` behavior exists; the status argument is
- * deliberately ignored until US2 adds the `all` and `cancelled` branches.
+ * `status` filters the LIST only; the summary always counts the confirmed reservations of the
+ * whole snapshot, so it is identical under every choice.
  */
-export async function listDay(date: string, _status: ListStatus): Promise<DayView> {
+export async function listDay(date: string, status: ListStatus): Promise<DayView> {
   const rows = await Reservation.find({ date }, ROW_FIELDS).lean<ReservationRow[]>();
 
   const tableIds = [...new Map(rows.map((r) => [r.tableId.toHexString(), r.tableId])).values()];
@@ -58,8 +58,8 @@ export async function listDay(date: string, _status: ListStatus): Promise<DayVie
 
   const nameOf = (tableId: Types.ObjectId): string => names.get(tableId.toHexString()) ?? UNKNOWN_TABLE;
 
-  const confirmed = rows.filter((r) => r.status === "confirmed");
-  const reservations = sortReservations(confirmed, nameOf).map((row) => {
+  const shown = status === "all" ? rows : rows.filter((r) => r.status === status);
+  const reservations = sortReservations(shown, nameOf).map((row) => {
     const name = nameOf(row.tableId);
     if (name === UNKNOWN_TABLE && !names.has(row.tableId.toHexString())) {
       // Ids only: never a guest name, email or phone.
@@ -68,7 +68,7 @@ export async function listDay(date: string, _status: ListStatus): Promise<DayVie
     return toReservationView(row, name);
   });
 
-  return { date, status: "confirmed", summary: buildSummary(rows), reservations };
+  return { date, status, summary: buildSummary(rows), reservations };
 }
 
 /**
