@@ -172,3 +172,5 @@ The two operations appear in the interactive documentation with their inputs, a 
 - One day has a bounded size (a restaurant with at most a few hundred tables), so returning the whole day in one answer is acceptable; paging is out of scope.
 - Staff are trusted with guest contact details; no per-staff roles or audit trail exist, as in earlier features.
 - Out of scope: modifying or moving a reservation, reminders, searching by guest or by date range, exporting, pagination beyond the single day, customer accounts, rate limiting, and any user interface.
+
+- If a table is renamed, its reservations show the table's current name; removing a table never changes what its reservations display.
