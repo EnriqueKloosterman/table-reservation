@@ -509,3 +509,173 @@ describe("feature 003 / US5: the contract documents both cancellation operations
     expect(res.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Feature 004 (US5): the staff day view and the single read are fully documented.
+// ---------------------------------------------------------------------------------------------
+
+type Param = {
+  name: string;
+  in: string;
+  required?: boolean;
+  description?: string;
+  example?: unknown;
+  schema?: { enum?: string[]; default?: unknown; example?: unknown };
+};
+
+const paramsOf = (key: string) => (byKey(key).op.parameters ?? []) as Param[];
+
+const LIST_KEY = "GET /reservations";
+const ONE_KEY = "GET /reservations/{id}";
+
+// Word for word from specs/004-staff-day-view/contracts/api.md.
+const LIST_DESCRIPTION =
+  "Staff sign-in required. Lists the reservations of one restaurant-local date, ordered by start time " +
+  "(ties: table name in natural order, then id). `status` chooses `confirmed` (default), `all` or " +
+  "`cancelled`. The `summary` counts confirmed reservations only under every status choice, so it is " +
+  "identical for all three. Any valid date is accepted, past or future; a day without matches answers " +
+  "200 with an empty list and a zero summary. The response contains guests' personal data and is " +
+  "never cached. Read-only.";
+const ONE_DESCRIPTION =
+  "Staff sign-in required. Reads one reservation of any status and date by its id (the ids in " +
+  "`affectedReservations` and in the day view). A malformed or unknown id is 404 `NOT_FOUND` " +
+  "'Reservation not found'. Contains personal data; never cached. Read-only.";
+
+describe("feature 004 / US5: the staff day view and the single read are documented", () => {
+  it("both operations are staff only: bearer security, the exact documented description, 21 operations, 7 public", () => {
+    expect(operations).toHaveLength(21);
+    expect(operations.filter((o) => (o.op.security ?? []).length === 0)).toHaveLength(7);
+    expect(operations.filter((o) => (o.op.security ?? []).length > 0)).toHaveLength(14);
+    for (const [key, description] of [
+      [LIST_KEY, LIST_DESCRIPTION],
+      [ONE_KEY, ONE_DESCRIPTION],
+    ] as const) {
+      const { op } = byKey(key);
+      expect(op.security, key).toEqual([{ bearerAuth: [] }]);
+      expect(op.description, key).toMatch(/^Staff sign-in required\./);
+      expect(op.description, key).toBe(description);
+      expect(op.tags, key).toEqual(["Reservations"]);
+    }
+  });
+
+  it("GET /reservations documents a required date and a status query with its three values and a request example", () => {
+    const params = paramsOf(LIST_KEY);
+    expect(params.map((p) => `${p.in}:${p.name}`).sort()).toEqual(["query:date", "query:status"]);
+    const date = params.find((p) => p.name === "date")!;
+    const status = params.find((p) => p.name === "status")!;
+
+    expect(date.required).toBe(true);
+    expect(date.description).toMatch(/YYYY-MM-DD/);
+    expect(date.example).toBe("2026-11-14");
+
+    expect(status.required).toBeFalsy();
+    expect(status.schema?.enum).toEqual(["confirmed", "all", "cancelled"]);
+    expect(status.schema?.default).toBe("confirmed");
+    expect(status.example).toBe("all");
+    const text = status.description ?? "";
+    expect(text).toMatch(/`confirmed` \(default\)/);
+    expect(text).toMatch(/`all`/);
+    expect(text).toMatch(/`cancelled`/);
+    expect(text).toMatch(/never changes the summary/i);
+  });
+
+  it("the list's 200 references DayView, and DayView, ReservationView and ReservationSummary are registered components", () => {
+    const ok = byKey(LIST_KEY).op.responses["200"]!;
+    expect(refName(ok.content?.["application/json"]?.schema?.$ref)).toBe("DayView");
+    for (const name of ["DayView", "ReservationView", "ReservationSummary"]) {
+      expect(schemas()[name], name).toBeDefined();
+    }
+    const day = schemas()["DayView"]!;
+    expect(Object.keys(day.properties ?? {}).sort()).toEqual(["date", "reservations", "status", "summary"]);
+    expect(refName(day.properties!["summary"]!.$ref)).toBe("ReservationSummary");
+    expect(refName(day.properties!["reservations"]!.items?.$ref)).toBe("ReservationView");
+    expect(day.properties!["status"]!.enum).toEqual(["confirmed", "all", "cancelled"]);
+    expect((day as { example?: unknown }).example, "DayView example").toBeDefined();
+  });
+
+  it("ReservationSummary says it counts confirmed reservations only, under every status choice", () => {
+    const summary = schemas()["ReservationSummary"]!;
+    expect(summary.description).toMatch(/confirmed/i);
+    expect(summary.description).toMatch(/every status choice/i);
+    expect(Object.keys(summary.properties ?? {}).sort()).toEqual(["guests", "reservations", "tablesUsed"]);
+  });
+
+  it("ReservationView lists the creation fields, makes cancelledAt / cancelledBy optional and 'only when cancelled', and has no secret", () => {
+    const view = schemas()["ReservationView"]!;
+    expect(Object.keys(view.properties ?? {}).sort()).toEqual(
+      [
+        "cancelledAt",
+        "cancelledBy",
+        "createdAt",
+        "date",
+        "endTime",
+        "guest",
+        "id",
+        "partySize",
+        "startTime",
+        "status",
+        "table",
+      ].sort(),
+    );
+    expect([...(view.required ?? [])].sort()).toEqual(
+      ["createdAt", "date", "endTime", "guest", "id", "partySize", "startTime", "status", "table"].sort(),
+    );
+    expect(view.properties!["cancelledAt"]!.description).toMatch(/only when cancelled/i);
+    expect(view.properties!["cancelledBy"]!.description).toMatch(/only when cancelled/i);
+    expect(view.properties!["cancelledBy"]!.enum).toEqual(["guest", "staff"]);
+    expect(refName(view.properties!["status"]!.$ref)).toBe("ReservationStatus");
+    for (const name of ["ReservationView", "ReservationSummary", "DayView"]) {
+      const text = JSON.stringify(schemas()[name]);
+      expect(text, name).not.toMatch(/secretCode|secretCodeHash/);
+    }
+  });
+
+  it("the ReservationView example is the contract example (a confirmed item without cancellation keys)", () => {
+    const example = (schemas()["ReservationView"] as { example?: Record<string, unknown> }).example!;
+    expect(example).toEqual({
+      id: "6741a0ffee0123456789abcd",
+      status: "confirmed",
+      date: "2026-11-14",
+      startTime: "20:30",
+      endTime: "22:30",
+      partySize: 3,
+      guest: { name: "Ana García", email: "ana@mail.com", phone: "+34 600 123 456" },
+      table: { name: "T4" },
+      createdAt: "2026-11-07T10:15:00.000Z",
+    });
+  });
+
+  it("GET /reservations/{id} documents the id path parameter, no query parameter, and a 200 ReservationView with an example", () => {
+    const params = paramsOf(ONE_KEY);
+    expect(params.map((p) => `${p.in}:${p.name}`)).toEqual(["path:id"]);
+    expect(params[0]!.required).toBe(true);
+    const { responses } = byKey(ONE_KEY).op;
+    expect(refName(responses["200"]!.content?.["application/json"]?.schema?.$ref)).toBe("ReservationView");
+    expect((schemas()["ReservationView"] as { example?: unknown }).example).toBeDefined();
+    expect(responses["404"]!.description).toContain("`NOT_FOUND`");
+    expect(responses["401"]!.description).toContain("`AUTHENTICATION_REQUIRED`");
+    expect(responses["400"]!.description).toContain("`VALIDATION_ERROR`");
+  });
+
+  it("the documented error statuses are [400, 401, 500] and [400, 401, 404, 500], each with the standard error body", () => {
+    const statuses = (key: string) =>
+      Object.keys(byKey(key).op.responses)
+        .filter((s) => !s.startsWith("2"))
+        .map(Number)
+        .sort((a, b) => a - b);
+    expect(statuses(LIST_KEY)).toEqual([400, 401, 500]);
+    expect(statuses(ONE_KEY)).toEqual([400, 401, 404, 500]);
+    for (const key of [LIST_KEY, ONE_KEY]) {
+      for (const [status, response] of Object.entries(byKey(key).op.responses)) {
+        if (status.startsWith("2")) continue;
+        expect(response.content?.["application/json"]?.schema?.$ref, `${key} ${status}`).toBe(ERROR_REF);
+      }
+    }
+  });
+
+  it("the ReservationStatus description explains confirmed and cancelled", () => {
+    const description = schemas()["ReservationStatus"]!.description ?? "";
+    expect(description).toMatch(/`confirmed`/);
+    expect(description).toMatch(/`cancelled`/);
+  });
+});

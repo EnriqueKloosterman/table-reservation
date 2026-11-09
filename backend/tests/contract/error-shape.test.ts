@@ -241,3 +241,55 @@ describe("feature 003: the guest cancellation answers use the standard error sha
     expect(started).not.toHaveProperty("details");
   });
 });
+
+describe("feature 004: the staff day view and the single read use the standard error shape", () => {
+  const ID = "6741a0ffee0123456789abcd";
+  const fields = (details: unknown) => (details as { field: string }[]).map((d) => d.field).sort();
+
+  it("single read: an unknown query parameter is a 400 naming it (with a token), a 401 without one", async () => {
+    const error = expectError(await authed(request(app).get(`/reservations/${ID}?foo=1`)), 400, "VALIDATION_ERROR");
+    expect(fields(error.details)).toEqual(["query.foo"]);
+    expectError(await request(app).get(`/reservations/${ID}?foo=1`), 401, "AUTHENTICATION_REQUIRED");
+  });
+
+  it("list: every offending field is reported at once", async () => {
+    const error = expectError(
+      await authed(request(app).get("/reservations").query({ date: "2026-02-30", status: "pending" })),
+      400,
+      "VALIDATION_ERROR",
+    );
+    expect(fields(error.details)).toEqual(["query.date", "query.status"]);
+  });
+
+  it("list: a missing date, an unknown parameter and a repeated status are refused", async () => {
+    const missing = expectError(await authed(request(app).get("/reservations")), 400, "VALIDATION_ERROR");
+    expect(fields(missing.details)).toEqual(["query.date"]);
+
+    const unknown = expectError(
+      await authed(request(app).get("/reservations?date=2026-11-14&foo=1")),
+      400,
+      "VALIDATION_ERROR",
+    );
+    expect(fields(unknown.details)).toEqual(["query.foo"]);
+
+    const repeated = expectError(
+      await authed(request(app).get("/reservations?date=2026-11-14&status=all&status=confirmed")),
+      400,
+      "VALIDATION_ERROR",
+    );
+    expect(fields(repeated.details)).toEqual(["query.status"]);
+  });
+
+  it("list and single read: 401 without a token", async () => {
+    expectError(await request(app).get("/reservations?date=2026-11-14"), 401, "AUTHENTICATION_REQUIRED");
+    expectError(await request(app).get(`/reservations/${ID}`), 401, "AUTHENTICATION_REQUIRED");
+  });
+
+  it("single read: an unknown or malformed id is a 404 NOT_FOUND without details", async () => {
+    for (const id of [ID, "abc"]) {
+      const error = expectError(await authed(request(app).get(`/reservations/${id}`)), 404, "NOT_FOUND");
+      expect(error.message).toBe("Reservation not found");
+      expect(error).not.toHaveProperty("details");
+    }
+  });
+});

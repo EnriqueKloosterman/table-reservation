@@ -161,8 +161,12 @@ export const ReservationListStatusSchema = z.enum(["confirmed", "all", "cancelle
 });
 
 export const ReservationListQuerySchema = z.strictObject({
-  date: CalendarDateSchema.openapi({ description: "Restaurant-local date, YYYY-MM-DD.", example: "2026-11-14" }),
-  status: ReservationListStatusSchema.default("confirmed"),
+  date: CalendarDateSchema.openapi({
+    description: "Restaurant-local date, YYYY-MM-DD.",
+    example: "2026-11-14",
+    param: { example: "2026-11-14" },
+  }),
+  status: ReservationListStatusSchema.default("confirmed").openapi({ param: { example: "all" } }),
 });
 
 /** The single read defines no query parameters, so any query parameter is a 400 (FR-014). */

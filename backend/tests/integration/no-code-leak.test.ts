@@ -46,12 +46,36 @@ describe("SC-007: the secret code never leaves the creation response", () => {
       id: string;
       secretCode: string;
     };
-    const forbidden = [first.secretCode, second.secretCode, sha256(first.secretCode), sha256(second.secretCode)];
-
     const responses: request.Response[] = [];
     const openApiDocuments = new Set<request.Response>();
     responses.push(await cancelWithCode(app, first.secretCode));
     responses.push(await cancelAsStaff(app, second.id, token));
+
+    // Feature 004: a third reservation that stays confirmed (its 21:00 slot was just freed).
+    const third = (await reserveAs(app, { email: "c@mail.com", time: "21:00", date: DATE })).body as {
+      id: string;
+      secretCode: string;
+    };
+    const forbidden = [
+      first.secretCode,
+      second.secretCode,
+      third.secretCode,
+      sha256(first.secretCode),
+      sha256(second.secretCode),
+      sha256(third.secretCode),
+    ];
+
+    // The two staff reads answer 200 with real data (guest- and staff-cancelled, and confirmed):
+    // the sweep must inspect these bodies, not only 400s.
+    const staffReads = [
+      await request(app).get("/reservations").query({ date: DATE, status: "all" }).set("Authorization", `Bearer ${token}`),
+      await request(app).get(`/reservations/${first.id}`).set("Authorization", `Bearer ${token}`),
+      await request(app).get(`/reservations/${second.id}`).set("Authorization", `Bearer ${token}`),
+      await request(app).get(`/reservations/${third.id}`).set("Authorization", `Bearer ${token}`),
+    ];
+    for (const res of staffReads) expect(res.status).toBe(200);
+    expect((staffReads[0]!.body as { reservations: unknown[] }).reservations).toHaveLength(3);
+    responses.push(...staffReads);
 
     const doc = await fetchOpenApi(app);
     const values: Record<string, string> = { id: first.id, date: DATE };
