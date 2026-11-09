@@ -119,6 +119,45 @@ found", one answer for every unknown code or id), `409 ALREADY_CANCELLED` (safe 
 A cancelled reservation stays stored but frees its table and the guest's slot and no longer
 counts in any rule or report.
 
+## Staff day view of reservations
+
+Two read-only, staff-only operations (bearer token required; they return guests' personal data,
+so every 2xx answer is `Cache-Control: no-store`). Neither writes anything, sends an email or
+touches the secret code or its hash. Check order: sign-in (`401`) → validation (`400`) →
+not found (`404`), so without a token the answer is always `401`, even for an invalid query.
+
+| Operation | What it does |
+|---|---|
+| `GET /reservations?date=&status=` | The reservations of one restaurant-local date, ordered by start time (ties: table name in natural order, `T2` before `T10`, then id), plus a `summary`. |
+| `GET /reservations/{id}` | One reservation of any status and date by its id (the ids in `affectedReservations` and in the day view). A malformed or unknown id is `404 NOT_FOUND` "Reservation not found". It takes no query parameters (any one is a `400`). |
+
+`status` chooses what the list contains: `confirmed` (default), `all` (both kinds, interleaved
+by start time) or `cancelled`. A repeated, empty or unknown `status` and any unknown parameter
+are a `400` that names every offending field. Any valid date is accepted, past or future; a day
+without matches is `200` with an empty list and a zero summary.
+
+The **summary counts confirmed reservations only**, whatever `status` says, so it is identical
+for all three choices: `{ reservations, guests, tablesUsed }` (number of confirmed reservations,
+their party sizes added up, and distinct tables among them). The list and the summary come from
+one read of the day, so they always agree.
+
+Each item has the fields of the creation answer, without `secretCode`: `id`, `status`, `date`,
+`startTime`, `endTime`, `partySize`, `guest { name, email, phone }`, `table { name }`,
+`createdAt`, plus `cancelledAt` and `cancelledBy` (`guest` or `staff`) **only** when cancelled.
+`table.name` is the table's current name (a rename shows the new one; a removed table keeps its
+name; `"unknown"` only if the table record cannot be found).
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"<staff email>","password":"<password>"}' | jq -r .token)
+
+# The day, including cancelled reservations
+curl "http://localhost:3000/reservations?date=2026-11-14&status=all" -H "Authorization: Bearer $TOKEN"
+
+# One reservation (e.g. an id from affectedReservations)
+curl http://localhost:3000/reservations/<id> -H "Authorization: Bearer $TOKEN"
+```
+
 To see the emails locally run [Mailpit](https://mailpit.axllent.org) and point the app at it:
 
 ```bash
@@ -153,8 +192,9 @@ downloads a `mongod` binary (network access needed once; cached under
 
 - `tests/unit/` — pure functions (config, normalization, password, schedule and date rules).
 - `tests/integration/` — every user story through HTTP, including the concurrency suites
-  (20 simultaneous requests × 50 rounds for one table) and a p95 latency smoke test (SC-006,
-  with 100 tables, 500 closed dates and 10,000 reservations).
+  (20 simultaneous requests × 50 rounds for one table) and p95 latency smoke tests (SC-006 and
+  SC-010, with 100 tables, 500 closed dates and 10,000 reservations; the day view test also
+  checks that the day is found through the `{ date: 1 }` index).
 - `tests/contract/` — SC-002 (every protected operation refuses requests without a token),
   SC-003 (every error has the standard shape), SC-004 (the OpenAPI document matches the
   mounted routes, fully described).
@@ -250,3 +290,11 @@ Added by the confirmation email and cancellation feature:
   guessing is not practical, but the operation is open and unthrottled.
 - **SMTP is optional.** Without `SMTP_URL` emails are skipped and only an `email_skipped` line is
   logged, so a guest never receives their code by email in that setup.
+
+Added by the staff day view feature:
+
+- **No paging: a very large day is returned whole.** `GET /reservations` reads and returns every
+  reservation of the date in one answer. With 200 reservations on a day among 10,000 stored, its
+  p95 is about 0.07 s in the performance test (limit 1 s); the cost grows with the size of the
+  day, not with the total number of reservations (the `{ date: 1 }` index finds the day).
+- **No search, export or rate limiting** on the two staff reads.
