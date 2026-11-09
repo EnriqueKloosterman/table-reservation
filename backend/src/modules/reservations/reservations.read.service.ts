@@ -2,7 +2,7 @@ import type { Types } from "mongoose";
 import { notFound } from "../../shared/errors/app-error.js";
 import { Table } from "../tables/table.model.js";
 import { Reservation } from "./reservation.model.js";
-import { RESERVATION_NOT_FOUND_MESSAGE } from "./reservation-id.js";
+import { parseReservationId, RESERVATION_NOT_FOUND_MESSAGE } from "./reservation-id.js";
 import {
   buildSummary,
   sortReservations,
@@ -72,9 +72,21 @@ export async function listDay(date: string, status: ListStatus): Promise<DayView
 }
 
 /**
- * Feature 004 US4 skeleton (Constitution II, test-first): every id is "not found" and the database
- * is not touched. The real lookup arrives in US3 after its tests have been seen failing.
+ * One reservation of any status and date. A malformed id is "not found" before the database is
+ * touched (`findById` with a non-hex string would be a cast error, a 500); an unknown id is the
+ * same "not found". The table name is resolved by id, removed tables included.
  */
-export function readReservation(_id: string): Promise<ReservationItem> {
-  return Promise.reject(notFound(RESERVATION_NOT_FOUND_MESSAGE));
+export async function readReservation(id: string): Promise<ReservationItem> {
+  const oid = parseReservationId(id);
+  if (!oid) throw notFound(RESERVATION_NOT_FOUND_MESSAGE);
+
+  const row = await Reservation.findById(oid, ROW_FIELDS).lean<ReservationRow | null>();
+  if (!row) throw notFound(RESERVATION_NOT_FOUND_MESSAGE);
+
+  const table = await Table.findById(row.tableId, { name: 1 }).lean<{ name: string } | null>();
+  if (!table) {
+    // Ids only: never a guest name, email or phone.
+    console.error(JSON.stringify({ event: "table_missing", reservationId: row._id.toHexString() }));
+  }
+  return toReservationView(row, table?.name ?? UNKNOWN_TABLE);
 }
