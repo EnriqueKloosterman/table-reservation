@@ -115,7 +115,7 @@ describe("feature 002: the new operations are public", () => {
 
   it("no staff operation became public", () => {
     const staff = operationsOf(doc).filter((o) => !FINAL_PUBLIC.includes(o.key));
-    expect(staff.length).toBe(12);
+    expect(staff.length).toBe(14);
     for (const op of staff) expect((op.op.security ?? []).length, op.key).toBeGreaterThan(0);
   });
 
@@ -154,5 +154,31 @@ describe("feature 002: the new operations are public", () => {
       const res = await call(op);
       expect.soft(res.status, op.key).toBe(401);
     }
+  });
+});
+
+describe("feature 004: the staff day view and the single read are secured", () => {
+  const NEW_STAFF = ["GET /reservations", "GET /reservations/{id}"];
+
+  it("both new operations are in the secured sweep and the secured set grew by exactly these two", () => {
+    const keys = secured.map((o) => o.key);
+    for (const key of NEW_STAFF) expect(keys, key).toContain(key);
+    expect(secured).toHaveLength(14);
+  });
+
+  it("each answers 401 without a token (the single read with a dummy id)", async () => {
+    for (const key of NEW_STAFF) {
+      const op = secured.find((o) => o.key === key)!;
+      expectError(await call(op), 401, "AUTHENTICATION_REQUIRED");
+    }
+  });
+
+  it("GET /reservations with no date and no token is still 401, not 400", async () => {
+    expectError(await request(app).get("/reservations"), 401, "AUTHENTICATION_REQUIRED");
+    expectError(
+      await request(app).get("/reservations").query({ date: "2026-02-30", status: "pending", foo: "1" }),
+      401,
+      "AUTHENTICATION_REQUIRED",
+    );
   });
 });
