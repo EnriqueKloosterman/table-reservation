@@ -1,5 +1,24 @@
 <!--
 Sync Impact Report
+- Version change: 1.1.0 → 1.2.0 (MINOR: materially expanded guidance in Principles II and V
+  and the Technology Stack)
+- Modified principles:
+  - II. Test-First: SMTP, like MongoDB, MUST be replaced in tests by test doubles through the
+    email interface; no test may depend on a running SMTP server.
+  - V. Simplicity and Minimal Dependencies: MongoDB and an SMTP server (outbound email) are
+    the only external runtime dependencies; SMTP is reached only through the Principle III
+    email interface and its failure/slowness/misconfiguration MUST never block startup or
+    fail, undo or delay a reservation or cancellation; further dependencies need an
+    amendment.
+- Added sections: none (Technology Stack gains an "Email" bullet)
+- Removed sections: none
+- Templates: not modified (dependent templates read the constitution at runtime)
+- Dependent artifacts to review: specs/003-* (confirmation email and cancellation) MUST
+  follow the amended rules; the plan's Constitution Check and dependency justification
+  (Nodemailer) apply.
+- Follow-up TODOs: none
+
+Previous report (1.0.0 → 1.1.0)
 - Version change: 1.0.0 → 1.1.0 (MINOR: materially expanded guidance in Principle III)
 - Modified principles:
   - III. Reservation Integrity at the Database Level (title unchanged): the UTC storage rule
@@ -42,7 +61,8 @@ later against a known API without drift between validation and documentation.
 - Tests requiring persistence MUST use mongodb-memory-server; no test may depend on an
   externally running database or service.
 - External side effects (e.g. email) MUST be replaced by test doubles through their
-  interfaces.
+  interfaces. SMTP, like MongoDB, MUST be replaced in tests by test doubles through the
+  email interface; no test may depend on a running SMTP server.
 - No user story is considered done until all of its tests pass.
 
 **Rationale**: Failing-first tests prove that each test actually exercises the behavior it
@@ -84,7 +104,11 @@ easy to consume and to test, and keep the frontend's error handling uniform.
 - Dependencies MUST be kept to a minimum. Prefer the standard library and the tools already
   in the stack before adding a new package; each new dependency MUST be justified in the
   feature's plan.
-- MongoDB is the only external runtime dependency.
+- MongoDB and an SMTP server (for outbound email) are the only external runtime
+  dependencies. The SMTP server MUST be reached only through the email interface required
+  by Principle III. Its unavailability, slowness or misconfiguration MUST never prevent the
+  application from starting and MUST never fail, undo or delay a reservation or a
+  cancellation. Any further external runtime dependency requires a constitution amendment.
 - Do not build for hypothetical requirements (YAGNI).
 
 **Rationale**: Fewer dependencies mean a smaller attack surface, fewer upgrades, and a
@@ -100,6 +124,9 @@ codebase that is easier to understand and maintain.
 - **Configuration**: All configuration comes from environment variables, validated with
   Zod at startup; the application MUST fail fast on invalid configuration. No secrets may be
   committed to the repository (provide an example env file with placeholders instead).
+- **Email**: sent through an interface; SMTP transport via Nodemailer. The SMTP endpoint is
+  configured through environment variables validated with Zod, and is optional at startup:
+  when it is not configured, sending is skipped and the skip is logged.
 - **CORS**: Enabled for the local frontend origin, configured via environment variables.
 - **Documentation**: OpenAPI generated from Zod schemas, served at `/docs`.
 
@@ -128,4 +155,4 @@ codebase that is easier to understand and maintain.
 - **Compliance review**: every plan and every code review MUST verify adherence to these
   principles. Added complexity MUST be justified.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-06
+**Version**: 1.2.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-07

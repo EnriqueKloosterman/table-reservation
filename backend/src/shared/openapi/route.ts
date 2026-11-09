@@ -79,6 +79,8 @@ const CODE_MEANING: Record<ErrorCode, string> = {
     "the requested time cannot be booked; `details` is `{ \"reason\" }` with one of, in " +
     "precedence order: `too_soon`, `too_far_ahead`, `closed_date`, `closed_day`, " +
     "`outside_service_hours`, `party_too_large`, `no_table_free`",
+  ALREADY_CANCELLED: "the reservation is already cancelled; nothing changes and no email is sent",
+  CANNOT_CANCEL: "the reservation has already started or ended; nothing changes",
   SERVICE_UNAVAILABLE: 'the database is not connected; `details` is `{ "database": "down" }`',
   INTERNAL_ERROR: "unexpected failure; no `details`, nothing internal is disclosed",
 };

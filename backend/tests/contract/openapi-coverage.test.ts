@@ -1,3 +1,4 @@
+import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildTestApp } from "../helpers/build-test-app.js";
 import { fetchOpenApi, operationsOf, type OpenApiDocument, type Operation } from "../helpers/openapi.js";
@@ -29,6 +30,8 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "GET /availability": [400, 500],
   "GET /availability/times": [400, 500],
   "POST /reservations": [400, 409, 500],
+  "POST /reservations/cancel": [400, 404, 409, 500],
+  "POST /reservations/{id}/cancel": [401, 404, 409, 500],
 };
 
 type Layer = {
@@ -62,10 +65,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 17 operations", () => {
+  it("documents exactly the mounted routes, 19 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(17);
+    expect(documented).toHaveLength(19);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
@@ -291,7 +294,7 @@ describe("US5 / FR-024: the three changed responses include affectedReservations
     expect(refName(affected.items?.$ref)).toBe("AffectedReservation");
   });
 
-  it("an affected reservation shows id, date, start and end time, party size, guest name and table name", () => {
+  it("an affected reservation shows id, date, start and end time, party size, guest name, table name and status", () => {
     const item = schemas()["AffectedReservation"]!;
     expect(Object.keys(item.properties!).sort()).toEqual([
       "date",
@@ -300,6 +303,7 @@ describe("US5 / FR-024: the three changed responses include affectedReservations
       "id",
       "partySize",
       "startTime",
+      "status",
       "tableName",
     ]);
   });
@@ -338,5 +342,168 @@ describe("US5 / FR-013: the secret code appears only in the creation response", 
   it("the property says it is shown only once", () => {
     const secret = schemas()["ReservationConfirmation"]!.properties!["secretCode"]!;
     expect(secret.description).toMatch(/only here/i);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US2): the public guest cancellation.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / FR-023: POST /reservations/cancel is documented as public", () => {
+  const key = "POST /reservations/cancel";
+
+  it("is public: no security requirement and a description that says so", () => {
+    const { op } = byKey(key);
+    expect(op.summary?.trim()).toBeTruthy();
+    expect(op.description).toMatch(/^Public — no sign-in required\./);
+    expect(op.security ?? []).toHaveLength(0);
+  });
+
+  it("states that the code is accepted only in the body, never in the URL", () => {
+    const text = byKey(key).op.description ?? "";
+    expect(text).toMatch(/body/i);
+    expect(text).toMatch(/never in the URL|not in the URL|never.*URL/i);
+  });
+
+  it("has a request example with the code field", () => {
+    const media = byKey(key).op.requestBody?.content?.["application/json"];
+    expect(media?.example).toBeDefined();
+    expect(Object.keys(media?.example as object)).toEqual(["code"]);
+  });
+
+  it("documents 200 and the error statuses 400, 404, 409 and 500 with their codes", () => {
+    const { responses } = byKey(key).op;
+    expect(Object.keys(responses).sort()).toEqual(["200", "400", "404", "409", "500"]);
+    expect(refName(responses["200"]!.content?.["application/json"]?.schema?.$ref)).toBe("CancellationResult");
+    for (const status of ["400", "404", "409", "500"]) {
+      expect(responses[status]!.content?.["application/json"]?.schema?.$ref, status).toBe(ERROR_REF);
+    }
+    expect(responses["400"]!.description).toContain("`VALIDATION_ERROR`");
+    expect(responses["404"]!.description).toContain("`NOT_FOUND`");
+    expect(responses["409"]!.description).toContain("`ALREADY_CANCELLED`");
+    expect(responses["409"]!.description).toContain("`CANNOT_CANCEL`");
+    expect(responses["500"]!.description).toContain("`INTERNAL_ERROR`");
+  });
+
+  it("the CancellationResult component has exactly the documented fields and no code, hash or contact data", () => {
+    const result = schemas()["CancellationResult"]!;
+    expect(Object.keys(result.properties!).sort()).toEqual([
+      "cancelledAt",
+      "date",
+      "endTime",
+      "id",
+      "partySize",
+      "startTime",
+      "status",
+    ]);
+    expect(result.properties!["status"]!.enum ?? [(result.properties!["status"] as { const?: string }).const]).toContain(
+      "cancelled",
+    );
+    const text = JSON.stringify(result);
+    for (const forbidden of ["secretCode", "secretCodeHash", "guest", "table", "email", "phone"]) {
+      expect(text, forbidden).not.toContain(`"${forbidden}"`);
+    }
+  });
+
+  it("the new error codes are listed in ErrorResponse", () => {
+    const codes = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["code"]!.enum;
+    expect(codes).toContain("ALREADY_CANCELLED");
+    expect(codes).toContain("CANNOT_CANCEL");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US3): the staff cancellation.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / US3: POST /reservations/{id}/cancel is documented as a staff operation", () => {
+  const key = "POST /reservations/{id}/cancel";
+
+  it("requires the bearer token and does not claim to be public", () => {
+    const { op } = byKey(key);
+    expect(op.summary?.trim()).toBeTruthy();
+    expect(op.description).not.toMatch(/^Public/);
+    expect(op.description).toMatch(/staff|sign-in/i);
+    expect((op.security ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("has an id path parameter and no required request body", () => {
+    const { op } = byKey(key);
+    const params = (op.parameters ?? []) as { name: string; in: string; required?: boolean }[];
+    expect(params.some((p) => p.name === "id" && p.in === "path")).toBe(true);
+    expect(op.requestBody?.required ?? false).toBe(false);
+  });
+
+  it("documents 200, 401, 404, 409 and 500 with their codes", () => {
+    const { responses } = byKey(key).op;
+    expect(Object.keys(responses).sort()).toEqual(["200", "401", "404", "409", "500"]);
+    expect(refName(responses["200"]!.content?.["application/json"]?.schema?.$ref)).toBe("CancellationResult");
+    for (const status of ["401", "404", "409", "500"]) {
+      expect(responses[status]!.content?.["application/json"]?.schema?.$ref, status).toBe(ERROR_REF);
+    }
+    expect(responses["401"]!.description).toContain("`AUTHENTICATION_REQUIRED`");
+    expect(responses["404"]!.description).toContain("`NOT_FOUND`");
+    expect(responses["409"]!.description).toContain("`ALREADY_CANCELLED`");
+    expect(responses["409"]!.description).toContain("`CANNOT_CANCEL`");
+    expect(responses["500"]!.description).toContain("`INTERNAL_ERROR`");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Feature 003 (US5): final pins for the whole contract.
+// ---------------------------------------------------------------------------------------------
+
+describe("feature 003 / US5: the contract documents both cancellation operations", () => {
+  it("has exactly 19 operations, 7 of them public with the public description prefix", () => {
+    expect(operations).toHaveLength(19);
+    const publicOps = operations.filter((o) => (o.op.security ?? []).length === 0);
+    expect(publicOps.map((o) => o.key).sort()).toEqual([
+      "GET /availability",
+      "GET /availability/times",
+      "GET /health",
+      "GET /openapi.json",
+      "POST /auth/login",
+      "POST /reservations",
+      "POST /reservations/cancel",
+    ]);
+    for (const { key, op } of operations.filter((o) => o.key.startsWith("POST /reservations"))) {
+      const isPublic = (op.security ?? []).length === 0;
+      if (isPublic) expect(op.description, key).toMatch(/^Public — no sign-in required\./);
+    }
+  });
+
+  it("every response of both cancellation operations has an example (on the response or on its schema component)", () => {
+    for (const key of ["POST /reservations/cancel", "POST /reservations/{id}/cancel"]) {
+      const { responses } = byKey(key).op;
+      for (const [status, response] of Object.entries(responses)) {
+        const media: { example?: unknown; examples?: unknown; schema?: { $ref?: string } } | undefined =
+          response.content?.["application/json"];
+        const component = schemas()[refName(media?.schema?.$ref)] as { example?: unknown } | undefined;
+        expect(media?.example ?? media?.examples ?? component?.example, `${key} ${status} example`).toBeDefined();
+      }
+    }
+  });
+
+  it("the ReservationStatus schema lists exactly confirmed and cancelled", () => {
+    const status = schemas()["ReservationStatus"];
+    expect(status, "ReservationStatus component").toBeDefined();
+    expect([...(status!.enum ?? [])].sort()).toEqual(["cancelled", "confirmed"]);
+  });
+
+  it("POST /reservations states the confirmation email and that a send failure never changes the response", () => {
+    const text = byKey("POST /reservations").op.description ?? "";
+    expect(text).toMatch(/confirmation email/i);
+    expect(text).toMatch(/never change/i);
+    expect(text).not.toMatch(/No email is sent/i);
+  });
+
+  it("the ErrorResponse code enum includes the two cancellation codes", () => {
+    const codes = schemas()["ErrorResponse"]!.properties!["error"]!.properties!["code"]!.enum;
+    expect(codes).toEqual(expect.arrayContaining(["ALREADY_CANCELLED", "CANNOT_CANCEL"]));
+  });
+
+  it("Swagger UI at /docs responds 200", async () => {
+    const res = await request(app).get("/docs/");
+    expect(res.status).toBe(200);
   });
 });

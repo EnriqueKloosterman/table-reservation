@@ -50,6 +50,7 @@ type Affected = {
   partySize: number;
   guestName: string;
   tableName: string;
+  status: "confirmed";
 };
 
 const reserve = (over: Record<string, unknown> = {}) => reserveAs(app, over);
@@ -195,6 +196,7 @@ describe("affectedReservations (FR-022)", () => {
     partySize: 6,
     guestName: "Ana García",
     tableName: "T5",
+    status: "confirmed",
   });
 
   it("a closed date on 2026-12-24 lists the 6-guest reservation at T5", async () => {

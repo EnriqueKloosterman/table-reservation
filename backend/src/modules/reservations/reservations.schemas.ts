@@ -76,7 +76,7 @@ export const CREATE_RESERVATION_EXAMPLE = {
 export const ReservationConfirmationSchema = z
   .object({
     id: z.string().openapi({ example: "6741a0ffee0123456789abcd" }),
-    status: z.literal("confirmed"),
+    status: z.literal("confirmed").openapi({ description: "Always `confirmed` on creation (see `ReservationStatus`)." }),
     date: z.string().openapi({ example: "2026-11-14" }),
     startTime: z.string().openapi({ example: "20:30" }),
     endTime: z.string().openapi({ example: "22:30" }),
@@ -97,5 +97,54 @@ export const ReservationConfirmationSchema = z
   })
   .openapi("ReservationConfirmation");
 
+export const ReservationStatusSchema = z
+  .enum(["confirmed", "cancelled"])
+  .openapi("ReservationStatus", {
+    description:
+      "`confirmed`: the reservation holds its table and time. `cancelled`: it was cancelled by " +
+      "the guest or by staff; it stays stored for history but no longer counts anywhere.",
+  });
+
+/** The id format is checked in the service: a malformed id is a 404, not a 400. */
+export const ReservationIdParamsSchema = z.strictObject({
+  id: z.string().openapi({ description: "Reservation id (24 hex characters).", example: "6741a0ffee0123456789abcd" }),
+});
+
+export const CancelBodySchema = z
+  .strictObject({
+    code: z.string().openapi({
+      description:
+        "The secret code from the confirmation email, exactly as received (no trimming, no " +
+        "case change). Any text is accepted; a code that matches nothing gets the generic 404.",
+      example: "Yq3k0v8p1Zr7mWbN2xTfH5cJdL9sAeUoGiPyQ4tKXhE",
+    }),
+  })
+  .openapi("CancelReservation");
+
+export const CANCEL_RESERVATION_EXAMPLE = { code: "Yq3k0v8p1Zr7mWbN2xTfH5cJdL9sAeUoGiPyQ4tKXhE" };
+
+export const CancellationResultSchema = z
+  .object({
+    id: z.string().openapi({ example: "6741a0ffee0123456789abcd" }),
+    status: z.literal("cancelled").openapi({ description: "Always `cancelled` here (see `ReservationStatus`)." }),
+    date: z.string().openapi({ description: "Restaurant-local date.", example: "2026-11-14" }),
+    startTime: z.string().openapi({ description: "Restaurant-local start time.", example: "20:30" }),
+    endTime: z.string().openapi({ description: "Restaurant-local end time.", example: "22:30" }),
+    partySize: z.number().int().openapi({ example: 3 }),
+    cancelledAt: z.string().openapi({ description: "UTC instant, ISO-8601.", example: "2026-11-10T09:30:00.000Z" }),
+  })
+  .openapi("CancellationResult", {
+    example: {
+      id: "6741a0ffee0123456789abcd",
+      status: "cancelled",
+      date: "2026-11-14",
+      startTime: "20:30",
+      endTime: "22:30",
+      partySize: 3,
+      cancelledAt: "2026-11-10T09:30:00.000Z",
+    },
+  });
+
 export type CreateReservationInput = z.output<typeof CreateReservationBodySchema>;
 export type ReservationConfirmation = z.output<typeof ReservationConfirmationSchema>;
+export type CancellationResult = z.output<typeof CancellationResultSchema>;
