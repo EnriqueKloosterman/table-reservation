@@ -6,8 +6,9 @@ import type {
   CreateReservationBodySchema,
   ReservationIdParamsSchema,
   ReservationListQuerySchema,
+  ReservationReadQuerySchema,
 } from "./reservations.schemas.js";
-import { listDay } from "./reservations.read.service.js";
+import { listDay, readReservation } from "./reservations.read.service.js";
 import { cancelReservation, createReservation } from "./reservations.service.js";
 
 export type ReservationsController = {
@@ -15,6 +16,7 @@ export type ReservationsController = {
   cancelByCode: RouteHandler<undefined, undefined, typeof CancelBodySchema>;
   cancelByStaff: RouteHandler<typeof ReservationIdParamsSchema, undefined, undefined>;
   list: RouteHandler<undefined, typeof ReservationListQuerySchema, undefined>;
+  read: RouteHandler<typeof ReservationIdParamsSchema, typeof ReservationReadQuerySchema, undefined>;
 };
 
 /** HTTP handlers for the public reservation operation. */
@@ -43,6 +45,10 @@ export function createReservationsController(
       const day = await listDay(date, status);
       // Personal data of guests: never cached.
       res.status(200).set("Cache-Control", "no-store").json(day);
+    },
+    read: async (_req, res) => {
+      const reservation = await readReservation(res.locals.input.params.id);
+      res.status(200).set("Cache-Control", "no-store").json(reservation);
     },
   };
 }

@@ -236,7 +236,9 @@ describe("US2: cancel with the secret code", () => {
       await kept(app).get(`/reservations/cancel?code=${code}`),
       await kept(app).post(`/reservations/${code}/cancel`), // no sign-in: refused (401) or unknown (404)
     ];
-    expect([404, 404]).toEqual([attempts[0]?.status, attempts[1]?.status]);
+    // The GET is read as a staff-only "read one reservation" request (feature 004): with no token
+    // it is refused with 401 before the id is looked at; it cancels nothing either way.
+    expect([404, 401]).toEqual([attempts[0]?.status, attempts[1]?.status]);
     expect([401, 404]).toContain(attempts[2]?.status);
 
     // The query string is ignored: with no body the code is simply missing.

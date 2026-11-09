@@ -1,10 +1,13 @@
 import type { Types } from "mongoose";
+import { notFound } from "../../shared/errors/app-error.js";
 import { Table } from "../tables/table.model.js";
 import { Reservation } from "./reservation.model.js";
+import { RESERVATION_NOT_FOUND_MESSAGE } from "./reservation-id.js";
 import {
   buildSummary,
   sortReservations,
   toReservationView,
+  type ReservationItem,
   type ReservationRow,
 } from "./reservation-view.domain.js";
 import type { DayView } from "./reservations.schemas.js";
@@ -66,4 +69,12 @@ export async function listDay(date: string, _status: ListStatus): Promise<DayVie
   });
 
   return { date, status: "confirmed", summary: buildSummary(rows), reservations };
+}
+
+/**
+ * Feature 004 US4 skeleton (Constitution II, test-first): every id is "not found" and the database
+ * is not touched. The real lookup arrives in US3 after its tests have been seen failing.
+ */
+export function readReservation(_id: string): Promise<ReservationItem> {
+  return Promise.reject(notFound(RESERVATION_NOT_FOUND_MESSAGE));
 }

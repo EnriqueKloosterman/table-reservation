@@ -33,6 +33,7 @@ const EXPECTED_ERRORS: Record<string, number[]> = {
   "POST /reservations/cancel": [400, 404, 409, 500],
   "POST /reservations/{id}/cancel": [401, 404, 409, 500],
   "GET /reservations": [400, 401, 500],
+  "GET /reservations/{id}": [400, 401, 404, 500],
 };
 
 type Layer = {
@@ -66,10 +67,10 @@ beforeAll(async () => {
 });
 
 describe("SC-004: OpenAPI coverage", () => {
-  it("documents exactly the mounted routes, 20 operations", () => {
+  it("documents exactly the mounted routes, 21 operations", () => {
     const documented = operations.map((o) => o.key).sort();
     expect(documented).toEqual(mountedRoutes());
-    expect(documented).toHaveLength(20);
+    expect(documented).toHaveLength(21);
     expect(documented).toEqual(Object.keys(EXPECTED_ERRORS).sort());
   });
 
@@ -455,8 +456,8 @@ describe("feature 003 / US3: POST /reservations/{id}/cancel is documented as a s
 // ---------------------------------------------------------------------------------------------
 
 describe("feature 003 / US5: the contract documents both cancellation operations", () => {
-  it("has exactly 20 operations, 7 of them public with the public description prefix", () => {
-    expect(operations).toHaveLength(20);
+  it("has exactly 21 operations, 7 of them public with the public description prefix", () => {
+    expect(operations).toHaveLength(21);
     const publicOps = operations.filter((o) => (o.op.security ?? []).length === 0);
     expect(publicOps.map((o) => o.key).sort()).toEqual([
       "GET /availability",

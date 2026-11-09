@@ -12,7 +12,9 @@ import {
   ReservationConfirmationSchema,
   ReservationIdParamsSchema,
   ReservationListQuerySchema,
+  ReservationReadQuerySchema,
   ReservationStatusSchema,
+  ReservationViewSchema,
 } from "./reservations.schemas.js";
 
 const TAGS = ["Reservations"];
@@ -132,5 +134,23 @@ export function registerReservationRoutes(
     success: { status: 200, description: "The day view.", schema: DayViewSchema },
     errors: ["VALIDATION_ERROR"],
     handler: controller.list,
+  });
+
+  // Declared after `POST /reservations/cancel`; the verbs differ, so `GET /reservations/cancel`
+  // is simply read as an id (and is a 404).
+  defineRoute(ctx, {
+    method: "get",
+    path: "/reservations/:id",
+    summary: "Read one reservation (staff)",
+    description:
+      "Staff sign-in required. Reads one reservation of any status and date by its id (the ids " +
+      "in `affectedReservations` and in the day view). A malformed or unknown id is 404 " +
+      "`NOT_FOUND` 'Reservation not found'. Contains personal data; never cached. Read-only.",
+    tags: TAGS,
+    auth: true,
+    request: { params: ReservationIdParamsSchema, query: ReservationReadQuerySchema },
+    success: { status: 200, description: "The reservation.", schema: ReservationViewSchema },
+    errors: ["VALIDATION_ERROR", "NOT_FOUND"],
+    handler: controller.read,
   });
 }
