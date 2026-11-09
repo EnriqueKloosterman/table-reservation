@@ -148,3 +148,112 @@ export const CancellationResultSchema = z
 export type CreateReservationInput = z.output<typeof CreateReservationBodySchema>;
 export type ReservationConfirmation = z.output<typeof ReservationConfirmationSchema>;
 export type CancellationResult = z.output<typeof CancellationResultSchema>;
+
+// ---------------------------------------------------------------------------------------------
+// Staff day view (feature 004)
+// ---------------------------------------------------------------------------------------------
+
+export const ReservationListStatusSchema = z.enum(["confirmed", "all", "cancelled"]).openapi({
+  description:
+    "Which reservations the list contains: `confirmed` (default) only the confirmed ones, " +
+    "`cancelled` only the cancelled ones, `all` both in one start-time order. It never changes the summary.",
+  example: "all",
+});
+
+export const ReservationListQuerySchema = z.strictObject({
+  date: CalendarDateSchema.openapi({ description: "Restaurant-local date, YYYY-MM-DD.", example: "2026-11-14" }),
+  status: ReservationListStatusSchema.default("confirmed"),
+});
+
+/** The single read defines no query parameters, so any query parameter is a 400 (FR-014). */
+export const ReservationReadQuerySchema = z.strictObject({});
+
+export const LIST_RESERVATIONS_EXAMPLE = {
+  query: { date: "2026-11-14", status: "all" },
+};
+
+export const RESERVATION_VIEW_EXAMPLE = {
+  id: "6741a0ffee0123456789abcd",
+  status: "confirmed",
+  date: "2026-11-14",
+  startTime: "20:30",
+  endTime: "22:30",
+  partySize: 3,
+  guest: { name: "Ana García", email: "ana@mail.com", phone: "+34 600 123 456" },
+  table: { name: "T4" },
+  createdAt: "2026-11-07T10:15:00.000Z",
+};
+
+export const DAY_VIEW_EXAMPLE = {
+  date: "2026-11-14",
+  status: "all",
+  summary: { reservations: 1, guests: 3, tablesUsed: 1 },
+  reservations: [
+    RESERVATION_VIEW_EXAMPLE,
+    {
+      id: "6741a0ffee0123456789abce",
+      status: "cancelled",
+      date: "2026-11-14",
+      startTime: "21:00",
+      endTime: "23:00",
+      partySize: 2,
+      guest: { name: "Luis Pérez", email: "luis@mail.com", phone: "+34 600 000 111" },
+      table: { name: "T10" },
+      createdAt: "2026-11-07T11:00:00.000Z",
+      cancelledAt: "2026-11-10T09:30:00.000Z",
+      cancelledBy: "guest",
+    },
+  ],
+};
+
+export const ReservationViewSchema = z
+  .object({
+    id: z.string().openapi({ description: "Reservation id (24 hex characters).", example: "6741a0ffee0123456789abcd" }),
+    status: ReservationStatusSchema,
+    date: z.string().openapi({ description: "Restaurant-local date.", example: "2026-11-14" }),
+    startTime: z.string().openapi({ description: "Restaurant-local start time.", example: "20:30" }),
+    endTime: z.string().openapi({ description: "Restaurant-local end time.", example: "22:30" }),
+    partySize: z.number().int().openapi({ example: 3 }),
+    guest: z.object({
+      name: z.string().openapi({ example: "Ana García" }),
+      email: z.string().openapi({ example: "ana@mail.com" }),
+      phone: z.string().openapi({ example: "+34 600 123 456" }),
+    }),
+    table: z.object({
+      name: z.string().openapi({ description: "The table's current name.", example: "T4" }),
+    }),
+    createdAt: z.string().openapi({ description: "UTC instant, ISO-8601.", example: "2026-11-07T10:15:00.000Z" }),
+    cancelledAt: z
+      .string()
+      .optional()
+      .openapi({ description: "Present only when cancelled. UTC instant, ISO-8601.", example: "2026-11-10T09:30:00.000Z" }),
+    cancelledBy: z
+      .enum(["guest", "staff"])
+      .optional()
+      .openapi({ description: "Present only when cancelled: who cancelled.", example: "guest" }),
+  })
+  .openapi("ReservationView", { example: RESERVATION_VIEW_EXAMPLE });
+
+export const ReservationSummarySchema = z
+  .object({
+    reservations: z.number().int().min(0).openapi({ example: 1 }),
+    guests: z.number().int().min(0).openapi({ example: 3 }),
+    tablesUsed: z.number().int().min(0).openapi({ example: 1 }),
+  })
+  .openapi("ReservationSummary", {
+    description: "Confirmed reservations only, identical under every status choice.",
+  });
+
+export const DayViewSchema = z
+  .object({
+    date: z.string().openapi({ example: "2026-11-14" }),
+    status: ReservationListStatusSchema,
+    summary: ReservationSummarySchema,
+    reservations: z.array(ReservationViewSchema),
+  })
+  .openapi("DayView", { example: DAY_VIEW_EXAMPLE });
+
+export type ReservationListQuery = z.output<typeof ReservationListQuerySchema>;
+export type ReservationView = z.output<typeof ReservationViewSchema>;
+export type ReservationSummary = z.output<typeof ReservationSummarySchema>;
+export type DayView = z.output<typeof DayViewSchema>;

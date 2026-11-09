@@ -20,6 +20,7 @@ import type { Notifier } from "../notifications/notifier.js";
 import { loadDaySnapshot } from "../availability/availability.snapshot.js";
 import { GuestDay, TableDay } from "./calendar.model.js";
 import type { ClaimModel } from "./interval-claims.js";
+import { parseReservationId, RESERVATION_NOT_FOUND_MESSAGE } from "./reservation-id.js";
 import { Reservation } from "./reservation.model.js";
 import {
   defaultReservationOps,
@@ -281,9 +282,6 @@ async function reserve(
 /** Who is cancelling and how the reservation is identified. */
 export type CancelTarget = { by: "guest"; code: string } | { by: "staff"; id: string };
 
-const OBJECT_ID = /^[0-9a-f]{24}$/i;
-const NOT_FOUND_MESSAGE = "Reservation not found";
-
 /** The fields the cancellation reads from a stored reservation (never the code or its hash). */
 type CancelRecord = {
   _id: Types.ObjectId;
@@ -329,9 +327,10 @@ async function cancel(target: CancelTarget, deps: ReservationDeps): Promise<Canc
   if (target.by === "guest") {
     found = await Reservation.findOne({ secretCodeHash: hashSecretCode(target.code) }, { _id: 1 }).lean();
   } else {
-    found = OBJECT_ID.test(target.id) ? await Reservation.findById(target.id, { _id: 1 }).lean() : null;
+    const oid = parseReservationId(target.id);
+    found = oid ? await Reservation.findById(oid, { _id: 1 }).lean() : null;
   }
-  if (!found) throw notFound(NOT_FOUND_MESSAGE);
+  if (!found) throw notFound(RESERVATION_NOT_FOUND_MESSAGE);
 
   // 2. The atomic claim: the single gate among any number of simultaneous callers (FR-015).
   const claimed: CancelRecord | null = await Reservation.findOneAndUpdate(
@@ -343,7 +342,7 @@ async function cancel(target: CancelTarget, deps: ReservationDeps): Promise<Canc
   if (!claimed) {
     // 3. Lost or refused: one re-read decides the answer.
     const current: CancelRecord | null = await Reservation.findById(found._id).lean();
-    if (!current) throw notFound(NOT_FOUND_MESSAGE);
+    if (!current) throw notFound(RESERVATION_NOT_FOUND_MESSAGE);
     if (current.status === "cancelled") {
       // Repair release: idempotent, changes no state, sends no email.
       if (!(await releaseBoth(current, ops))) throw internalError();

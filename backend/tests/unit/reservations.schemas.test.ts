@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CreateReservationBodySchema } from "../../src/modules/reservations/reservations.schemas.js";
+import {
+  CreateReservationBodySchema,
+  LIST_RESERVATIONS_EXAMPLE,
+  ReservationListQuerySchema,
+  ReservationReadQuerySchema,
+} from "../../src/modules/reservations/reservations.schemas.js";
 import { zodIssuesToDetails } from "../../src/shared/validation/zod-issues.js";
 
 const valid = {
@@ -165,5 +170,69 @@ describe("the documented request example", () => {
     const result = CreateReservationBodySchema.safeParse(CREATE_RESERVATION_EXAMPLE);
     expect(result.success).toBe(true);
     expect(result.data).toEqual(CREATE_RESERVATION_EXAMPLE);
+  });
+});
+
+describe("ReservationListQuery (feature 004)", () => {
+  const fields = (input: unknown, prefix?: "query") => {
+    const result = ReservationListQuerySchema.safeParse(input);
+    if (result.success) return [];
+    return zodIssuesToDetails(result.error, prefix);
+  };
+
+  it("accepts a date alone and defaults status to confirmed", () => {
+    const result = ReservationListQuerySchema.safeParse({ date: "2026-11-14" });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ date: "2026-11-14", status: "confirmed" });
+  });
+
+  it.each(["confirmed", "all", "cancelled"])("accepts status %s", (status) => {
+    const result = ReservationListQuerySchema.safeParse({ date: "2026-11-14", status });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ date: "2026-11-14", status });
+  });
+
+  it("refuses a missing date", () => {
+    expect(fields({}).map((d) => d.field)).toEqual(["date"]);
+  });
+
+  it.each(["2026-02-30", "2026-1-5", "14-11-2026", ""])("refuses date %j", (date) => {
+    expect(fields({ date }).map((d) => d.field)).toEqual(["date"]);
+  });
+
+  it.each(["ALL", "pending", ""])("refuses status %j", (status) => {
+    expect(fields({ date: "2026-11-14", status }).map((d) => d.field)).toEqual(["status"]);
+  });
+
+  it("refuses a repeated status (array) instead of falling back to the default", () => {
+    expect(fields({ date: "2026-11-14", status: ["all", "confirmed"] }).map((d) => d.field)).toEqual(["status"]);
+  });
+
+  it("names an unknown key", () => {
+    expect(fields({ date: "2026-11-14", foo: "1" })).toEqual([{ field: "foo", reason: "Unknown field" }]);
+  });
+
+  it("reports date and status problems together in one parse", () => {
+    const details = fields({ date: "2026-02-30", status: "pending" }, "query");
+    expect(details.map((d) => d.field).sort()).toEqual(["query.date", "query.status"]);
+  });
+
+  it("the documented example passes unchanged", () => {
+    const result = ReservationListQuerySchema.safeParse(LIST_RESERVATIONS_EXAMPLE.query);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ date: "2026-11-14", status: "all" });
+  });
+});
+
+describe("ReservationReadQuery (feature 004)", () => {
+  it("accepts an empty query", () => {
+    expect(ReservationReadQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it.each([{ foo: "1" }, { status: "all" }, { date: "2026-11-14" }])("refuses %j and names the key", (query) => {
+    const result = ReservationReadQuerySchema.safeParse(query);
+    expect(result.success).toBe(false);
+    const key = Object.keys(query)[0]!;
+    expect(zodIssuesToDetails(result.error!)).toEqual([{ field: key, reason: "Unknown field" }]);
   });
 });
