@@ -44,7 +44,7 @@ Staff can choose to also see cancelled reservations of the day, or to see only t
 3. **Given** the same day, **When** staff ask for only cancelled reservations, **Then** only cancelled ones are listed.
 4. **Given** any of the three choices, **When** the summary is returned, **Then** it counts confirmed reservations only, so it is identical in all three cases.
 5. **Given** a cancelled reservation, **When** it is listed, **Then** it shows the moment of cancellation and who cancelled it (guest or staff); a confirmed reservation shows neither.
-6. **Given** a reservation whose table was removed after the reservation ended, **When** it is listed or read, **Then** it still shows the name the table had when it was assigned.
+6. **Given** a reservation whose table was removed after the reservation ended, **When** it is listed or read, **Then** it still shows that table's name (removing a table never changes what its reservations display).
 
 ---
 
@@ -105,8 +105,8 @@ The two operations appear in the interactive documentation with their inputs, a 
 - Several reservations on the same table on the same day count as one table in the summary.
 - A day with a very large number of reservations: all are returned in one answer; there is no paging.
 - A reservation cancelled between two requests changes lists and summary accordingly; each answer is a consistent snapshot of the moment it is made.
-- Reading a reservation whose table has been removed: still returns the table name recorded at assignment.
-- Repeating any request any number of times changes nothing in the system.
+- Reading a reservation whose table has been removed: still returns that table's name.
+- Repeating any request, including one that fails with 400, 401 or 404, changes nothing in the system.
 
 ## Requirements *(mandatory)*
 
@@ -117,7 +117,7 @@ The two operations appear in the interactive documentation with their inputs, a 
 - **FR-001**: Signed-in staff MUST be able to request the reservations of one restaurant-local date, through `GET /reservations` with the required `date` query parameter (`YYYY-MM-DD`, a real calendar date), and receive them ordered by start time ascending, ties broken in a stable, repeatable way.
 - **FR-002**: Each reservation in the list MUST show: identifier, status ("confirmed" or "cancelled"), date, start time and end time (restaurant-local), party size, guest name, guest email, guest phone, the assigned table's name, creation time (ISO-8601 UTC), and, only when cancelled, the cancellation moment (ISO-8601 UTC) and who cancelled it ("guest" or "staff").
 - **FR-003**: The status choice MUST be an optional `status` query parameter with exactly three accepted values: `confirmed` (the default when omitted), `all` (confirmed and cancelled) and `cancelled` (cancelled only).
-- **FR-004**: A reservation MUST always show the table name it was assigned, even if that table was removed afterwards; removing a table MUST NOT change what previously assigned reservations display.
+- **FR-004**: A reservation MUST show the name of its assigned table. If the table is renamed, the current name is shown; if the table is removed, its name is still shown, so removing a table MUST NOT change what its reservations display. Only if the table's record cannot be found at all (never expected) is the name shown as `unknown`, and the answer is still successful.
 - **FR-005**: The answer MUST include a summary for the day with: number of reservations, total guests (sum of party sizes) and number of distinct tables with at least one reservation. The summary MUST count confirmed reservations only, regardless of the status choice, and MUST be consistent with the list returned when the choice is `confirmed`.
 - **FR-006**: Any valid date MUST be accepted, past or future, with no limit; a date with no matching reservations MUST give a successful answer with an empty list and a summary of zeros.
 - **FR-007**: The date of a reservation MUST be understood in the restaurant's time zone, consistent with features 001 to 003.
@@ -129,24 +129,24 @@ The two operations appear in the interactive documentation with their inputs, a 
 
 **Privacy and security**
 
-- **FR-010**: Both operations MUST require the staff sign-in of feature 001 and never be public. Missing, malformed or expired credentials MUST be refused with the standard authentication error before anything is read and before any other validation.
-- **FR-011**: The secret cancellation code and its stored form MUST NOT appear in any response of these operations.
-- **FR-012**: Responses of these operations contain personal data and MUST NOT be cached by clients or intermediaries.
+- **FR-010**: Both operations MUST require the staff sign-in of feature 001 and never be public. "Staff sign-in" is exactly the sign-in of feature 001 (bearer token); missing, malformed, expired or tampered (invalid signature) credentials MUST be refused with the standard authentication error before anything is read and before any other validation. Any valid staff sign-in is sufficient: there are no roles, so a signed-in caller is never refused as unauthorized. Without sign-in the answer is the same for existing and non-existing reservation ids, so existence cannot be inferred. No other endpoint gains access to reservation data through this feature. `GET /reservations/{id}` does not collide with `POST /reservations/cancel` (different method), and an unauthenticated caller always gets 401 whatever the path segment.
+- **FR-011**: The secret cancellation code, its stored form and any derivative (hash, prefix, length, comparison hint) MUST NOT appear in any response of these operations, whatever the status code (success or error), nor in any log line they write. Staff cancellation (feature 003) needs no code, so a staff read never needs to reveal or reconstruct it.
+- **FR-012**: Successful responses of these operations contain personal data and MUST NOT be cached by clients or intermediaries (`Cache-Control: no-store`). Error responses contain no personal data. The only guest data exposed per reservation is name, email and phone. Logs written by these operations MUST NOT contain guest data (only identifiers and event names). A cancelled reservation keeps showing the guest's contact details for as long as the reservation exists; no expiry is applied.
 
 **Read-only**
 
-- **FR-013**: Both operations MUST change nothing: no reservation, table, schedule, closed date, hold or email is created, altered or removed by calling them. This feature adds no way to modify or move a reservation.
+- **FR-013**: Both operations MUST change nothing: no stored data (reservations, tables, schedules, closed dates, holds, claims) and no email is created, altered or removed by calling them, whatever the outcome (200, 400, 401, 404 or 500). The only permitted side effect is a diagnostic log line without personal data. This feature adds no way to modify or move a reservation.
 
 **API quality (inherited)**
 
-- **FR-014**: The operations MUST follow the inherited API rules: the standard error structure, correct HTTP status per outcome (400 invalid input, 401 missing or invalid sign-in, 404 not found, 500 internal failure), validation before any read, all offending fields reported at once, and unknown query parameters refused. Checks run in this order: route match, sign-in, validation, not found.
+- **FR-014**: The operations MUST follow the inherited API rules: the standard error structure, correct HTTP status per outcome (400 invalid input, 401 missing or invalid sign-in, 404 not found, 500 internal failure), validation before any read, all offending fields reported at once, and unknown query parameters refused on both operations (`GET /reservations/{id}` defines no query parameters, so any query parameter is refused there). A repeated or empty `status` is a validation error, not a fallback to the default. A 500 never exposes stored documents, stack traces or personal data. 401 and 404 use the standard error codes and messages of features 001 and 003, not restated here. Checks run in this order: route match, sign-in, validation, not found.
 - **FR-015**: The interactive documentation MUST describe both operations, marked as requiring sign-in, with their inputs, the status choices, a request example and every response (success and each error).
 
 ### Key Entities
 
 - **Reservation** (existing, now readable by staff): identifier, status, date, start and end time, party size, guest name, email and phone, assigned table (name kept as assigned), creation time, and, when cancelled, the cancellation moment and canceller. The secret code is never part of what is shown.
 - **Day summary**: derived figures for one date: number of confirmed reservations, total guests, number of distinct tables used. Not stored.
-- **Table name at assignment**: the name a reservation displays for its table, preserved independently of later table removal.
+- **Table name display**: the name a reservation displays for its table: the table's current name, unaffected by later removal of the table.
 
 ## Success Criteria *(mandatory)*
 
@@ -155,22 +155,21 @@ The two operations appear in the interactive documentation with their inputs, a 
 - **SC-001**: For a day with a known set of reservations, 100% of listed reservations are the right ones, in start-time order, with every required field correct, verified by an automated check over at least 10 reservations on one date plus others on neighbouring dates, including evening times that fall on the next UTC day.
 - **SC-002**: The summary equals the figures computed independently from the confirmed reservations in 100% of checks, and is identical under all three status choices.
 - **SC-003**: 100% of requests without valid sign-in (none, malformed, expired) are refused with the standard authentication error for both operations, verified by an automated check.
-- **SC-004**: No response of either operation contains the secret code or its stored form, verified by an automated check across all statuses.
-- **SC-005**: After removing a table from a past reservation, 100% of reads still show the originally assigned table name.
+- **SC-004**: No response body of either operation, at any depth and for every status code (200 for confirmed and cancelled reservations, 400, 401, 404), and no log line they write, contains the secret code, its stored form or a derivative, verified by an automated check.
+- **SC-005**: After removing (or renaming) a table, 100% of reads of its reservations still show that table's name (the current name after a rename; unchanged after a removal).
 - **SC-006**: Empty days, past dates and far-future dates give successful empty answers with zero summary in 100% of checks.
 - **SC-007**: A staff member can go from an affected-reservation report to the inspected and then cancelled reservation using only returned identifiers, verified end to end in an automated check.
-- **SC-008**: An automated check comparing the full stored state before and after many calls of both operations finds zero differences.
+- **SC-008**: An automated check comparing the full stored state before and after many calls of both operations finds zero differences, where the full stored state is every collection of the system (reservations, tables, schedules, closed dates, holds, claims) compared document by document.
 - **SC-009**: Both operations appear in the documentation as requiring sign-in with a request example and every response described.
 - **SC-010**: 95% of responses arrive in under 1 second under the normal load defined in feature 002 SC-006 (up to 10 concurrent requests against 100 tables, one weekly schedule, 500 closed dates and 10,000 reservations), for a day with up to 200 reservations.
 
 ## Assumptions
 
 - Features 001 to 003 are in place; their rules (standard error structure, staff sign-in, restaurant time zone, reservation duration, statuses, table naming) are reused unchanged unless stated here.
-- A reservation's table name is kept with the reservation at assignment time (or an equivalent that survives table removal); if existing stored reservations lack it, planning will decide how to provide it, since the requirement is only the visible behaviour.
+- The table name is resolved from the reservation's table at read time; removed tables keep their records, so no stored field is added and existing reservations need no migration.
 - The default status choice is "confirmed only" and the summary is confirmed-only, as requested; the summary ignores the status choice by design.
 - Ordering ties (same start time) are broken by a fixed secondary rule, such as table name then identifier; the exact rule is a planning detail, only stability is required.
 - One day has a bounded size (a restaurant with at most a few hundred tables), so returning the whole day in one answer is acceptable; paging is out of scope.
-- Staff are trusted with guest contact details; no per-staff roles or audit trail exist, as in earlier features.
+- Staff are trusted with guest contact details; no per-staff roles or audit trail exist, as in earlier features. Accepted risk: any signed-in staff member can read any guest's contact details and reads are not recorded; the boundary is that nothing beyond name, email and phone is exposed and nothing is modified.
 - Out of scope: modifying or moving a reservation, reminders, searching by guest or by date range, exporting, pagination beyond the single day, customer accounts, rate limiting, and any user interface.
-
-- If a table is renamed, its reservations show the table's current name; removing a table never changes what its reservations display.
+- If a table is renamed, its reservations show the table's current name; removing a table never changes what its reservations display (see FR-004).
