@@ -121,7 +121,7 @@ No constitution violation. Changes to existing tests are recorded here as requir
 
 | Existing test | Change | Why |
 |---|---|---|
-| `tests/contract/openapi-coverage.test.ts` | operations 19 → 21; add `GET /reservations` → `[400, 401, 500]` and `GET /reservations/{id}` → `[401, 404, 500]` to `EXPECTED_ERRORS`; the public set stays 7, the secured set grows by 2 | two new documented operations |
+| `tests/contract/openapi-coverage.test.ts` | operations 19 → 21; add `GET /reservations` → `[400, 401, 500]` and `GET /reservations/{id}` → `[400, 401, 404, 500]` to `EXPECTED_ERRORS`; the public set stays 7, the secured set grows by 2 | two new documented operations |
 | `tests/contract/auth-coverage.test.ts` | the secured-operation sweep includes both new operations; `GET /reservations` with no `date` and no token still answers 401 | auth is checked before the query |
 | `tests/integration/no-code-leak.test.ts` (003 T041a) | the sweep calls `GET /reservations` with a valid `date` and `GET /reservations/{id}` with real ids | otherwise it would see only 400 responses and prove nothing |
 | `tests/contract/error-shape.test.ts` | one case per new error path (list 400/401, single 401/404) | standard error body on every path |
