@@ -125,6 +125,14 @@ export const CLIENT_MESSAGES = {
     body: "We can't show the booking page at the moment.",
     next: "Please try again later.",
   },
+  cancelReady: {
+    title: "You are about to cancel your reservation.",
+    body: "Nothing is cancelled until you press the button.",
+  },
+  cancelMissingCode: {
+    title: "We couldn't find a cancellation code in this link.",
+    body: "Type or paste the code from your email below.",
+  },
   idlePrompt: {
     title: "Choose a date and a party size to see the available times.",
     body: "",
