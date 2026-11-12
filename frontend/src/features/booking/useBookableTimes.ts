@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiClient } from "../../api/context";
-import { CLIENT_MESSAGES } from "../../api/messages";
+import { CLIENT_MESSAGES, FIELD_PROBLEMS } from "../../api/messages";
 import type { BookableTimes } from "../../api/types";
 import { useAnnounce } from "../../shared/a11y/LiveRegion";
 import { validateDate, validatePartySize } from "./validators";
@@ -10,6 +10,7 @@ export type TimesState =
   | { status: "loading" }
   | { status: "ready"; periods: BookableTimes["periods"] }
   | { status: "empty"; reason: string | undefined }
+  | { status: "refused" }
   | { status: "error" }
   | { status: "unreachable" };
 
@@ -54,6 +55,8 @@ export function useBookableTimes(date: string, partySize: string): BookableTimes
           next = periods.length > 0 ? { status: "ready", periods } : { status: "empty", reason };
         } else if (result.kind === "unreachable") {
           next = { status: "unreachable" };
+        } else if (result.kind === "refusal" && result.refusal.code === "VALIDATION_ERROR") {
+          next = { status: "refused" };
         } else {
           next = { status: "error" };
         }
@@ -61,6 +64,7 @@ export function useBookableTimes(date: string, partySize: string): BookableTimes
         if (next.status === "ready") polite("Available times loaded.");
         else if (next.status === "empty") polite("No times are available for that choice.");
         else if (next.status === "unreachable") assertive(CLIENT_MESSAGES.timesUnreachable.title);
+        else if (next.status === "refused") assertive(FIELD_PROBLEMS.form);
         else assertive(CLIENT_MESSAGES.timesServerError.title);
       });
     return () => {

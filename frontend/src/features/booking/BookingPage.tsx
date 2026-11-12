@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
+  AVAILABILITY_MESSAGES,
   CLIENT_MESSAGES,
+  FIELD_PROBLEMS,
   GENERIC_MESSAGE,
   messageForAvailability,
   type Message,
@@ -34,7 +36,14 @@ export function BookingPage() {
 function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
   const [draft, setDraft] = useState<BookingDraft>(EMPTY_DRAFT);
   const times = useBookableTimes(draft.date, draft.partySize);
-  const reservation = useReservation(draft);
+  const { refresh } = times;
+  const reservation = useReservation(draft, {
+    onTimeTaken: useCallback(() => {
+      // Only the chosen time goes; date, party size and the typed details stay.
+      setDraft((current) => ({ ...current, time: null }));
+      refresh();
+    }, [refresh]),
+  });
 
   if (reservation.phase === "confirmed" && reservation.confirmation) {
     return <Confirmation confirmation={reservation.confirmation} onNewBooking={onNewBooking} />;
@@ -47,6 +56,14 @@ function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
     setDraft((current) => ({ ...current, ...patch }));
   }
 
+  /** A new date, party size or time makes the last refusal and server problems out of date. */
+  function changeChoice(patch: Partial<BookingDraft>, field: "date" | "partySize" | "time") {
+    change(patch);
+    reservation.clearNotice();
+    reservation.clearProblem(field);
+    reservation.clearProblem("time");
+  }
+
   return (
     <section>
       <h1>Book a table</h1>
@@ -54,13 +71,29 @@ function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
         date={draft.date}
         partySize={draft.partySize}
         disabled={pending}
+        serverProblems={{ date: reservation.problems.date, partySize: reservation.problems.partySize }}
         onDateChange={(value) => {
-          change({ date: value, time: null });
+          changeChoice({ date: value, time: null }, "date");
         }}
         onPartySizeChange={(value) => {
-          change({ partySize: value, time: null });
+          changeChoice({ partySize: value, time: null }, "partySize");
         }}
       />
+
+      {reservation.notice ? (
+        <StatusMessage message={reservation.notice.message} variant="error">
+          {reservation.notice.retry ? (
+            <Button
+              disabled={pending}
+              onClick={() => {
+                void reservation.submit();
+              }}
+            >
+              Try again
+            </Button>
+          ) : null}
+        </StatusMessage>
+      ) : null}
 
       <div className="times-region">
         <TimesRegion
@@ -68,7 +101,7 @@ function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
           selected={draft.time}
           disabled={pending}
           onSelect={(time) => {
-            change({ time });
+            changeChoice({ time }, "time");
           }}
           onRetry={times.retry}
         />
@@ -82,7 +115,6 @@ function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
           values={{ name: draft.name, email: draft.email, phone: draft.phone }}
           problems={reservation.problems}
           problemsVersion={reservation.problemsVersion}
-          notice={reservation.notice}
           pending={pending}
           onChange={(field: DetailField, value: string) => {
             change({ [field]: value });
@@ -126,11 +158,19 @@ function TimesRegion({ state, selected, disabled, onSelect, onRetry }: TimesRegi
         />
       );
     case "empty": {
+      const known = state.reason !== undefined && Object.hasOwn(AVAILABILITY_MESSAGES, state.reason);
       const message: Message =
-        state.reason === undefined ? GENERIC_MESSAGE : messageForAvailability(state.reason);
+        state.reason !== undefined && known ? messageForAvailability(state.reason) : GENERIC_MESSAGE;
       return (
         <StatusMessage message={message}>
-          {state.reason === undefined ? <Button onClick={onRetry}>Try again</Button> : null}
+          {known ? null : <Button onClick={onRetry}>Try again</Button>}
+        </StatusMessage>
+      );
+    }
+    case "refused": {
+      return (
+        <StatusMessage message={{ title: FIELD_PROBLEMS.form, body: "" }} variant="error">
+          <Button onClick={onRetry}>Try again</Button>
         </StatusMessage>
       );
     }

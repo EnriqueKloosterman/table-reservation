@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 
 export async function chooseDateAndParty(user: UserEvent, date = "2026-11-14", party = "4") {
@@ -23,4 +23,17 @@ export async function bookUpTo(user: UserEvent, time = "20:00") {
   await chooseDateAndParty(user);
   await pickTime(user, time);
   await fillDetails(user);
+}
+
+/** Elements showing `text` on the page, leaving out the hidden live regions that repeat it. */
+export function visibleText(text: string | RegExp): HTMLElement[] {
+  return screen.queryAllByText(text).filter((el) => !el.closest("[role='alert'], [role='status']"));
+}
+
+export async function findVisibleText(text: string | RegExp): Promise<HTMLElement> {
+  return waitFor(() => {
+    const found = visibleText(text);
+    if (found.length === 0) throw new Error(`Text not shown: ${String(text)}`);
+    return found[0] as HTMLElement;
+  });
 }

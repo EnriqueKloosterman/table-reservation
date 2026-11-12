@@ -145,11 +145,12 @@ export const CLIENT_MESSAGES = {
   },
 } satisfies Record<string, Message>;
 
-export type ProblemKey = "date" | "partySize" | "name" | "email" | "phone" | "code" | "form";
+export type ProblemKey = "date" | "partySize" | "time" | "name" | "email" | "phone" | "code" | "form";
 
 export const FIELD_PROBLEMS: Record<ProblemKey, string> = {
   date: "Enter a valid date.",
   partySize: "Enter a whole number from 1 to 50.",
+  time: "Choose one of the available times.",
   name: "Enter your name (up to 100 characters).",
   email: "Enter a valid email address (up to 254 characters).",
   phone:

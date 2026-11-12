@@ -1,16 +1,24 @@
 import { useRef, type SyntheticEvent } from "react";
-import { FIELD_PROBLEMS, type Message, type ProblemKey } from "../../api/messages";
-import type { BookingField } from "../../api/types";
+import { FIELD_PROBLEMS, type ProblemKey } from "../../api/messages";
+import type { FieldProblem } from "../../api/types";
 import { useFocusOnChange } from "../../shared/a11y/useFocusOnChange";
 import { formatDate, formatTime } from "../../shared/dates";
 import { Button } from "../../shared/ui/Button";
 import { Field } from "../../shared/ui/Field";
-import { StatusMessage } from "../../shared/ui/StatusMessage";
 
 export type DetailField = "name" | "email" | "phone";
-export type Problems = Partial<Record<BookingField, ProblemKey>>;
+export type Problems = Partial<Record<FieldProblem, ProblemKey>>;
 
-const LABELS: Record<DetailField, string> = { name: "Name", email: "Email", phone: "Phone" };
+/** Order and labels of the error summary; "form" has no field, so it is listed without a label. */
+const SUMMARY: [FieldProblem, string | null][] = [
+  ["date", "Date"],
+  ["partySize", "Party size"],
+  ["time", "Time"],
+  ["name", "Name"],
+  ["email", "Email"],
+  ["phone", "Phone"],
+  ["form", null],
+];
 
 interface DetailsFormProps {
   date: string;
@@ -20,7 +28,6 @@ interface DetailsFormProps {
   problems: Problems;
   /** Changes each time validation fails, so the summary takes focus again. */
   problemsVersion: number;
-  notice: Message | null;
   pending: boolean;
   onChange: (field: DetailField, value: string) => void;
   onSubmit: () => void;
@@ -33,15 +40,14 @@ export function DetailsForm({
   values,
   problems,
   problemsVersion,
-  notice,
   pending,
   onChange,
   onSubmit,
 }: DetailsFormProps) {
   const summaryRef = useRef<HTMLElement>(null);
   useFocusOnChange(summaryRef, problemsVersion);
-  const listed = (Object.keys(LABELS) as DetailField[]).filter((field) => problems[field]);
-  const problemText = (field: DetailField) => {
+  const listed = SUMMARY.filter(([field]) => problems[field]);
+  const problemText = (field: FieldProblem) => {
     const key = problems[field];
     return key ? FIELD_PROBLEMS[key] : undefined;
   };
@@ -75,16 +81,15 @@ export function DetailsForm({
         >
           <h2 id="problems-heading">There is a problem</h2>
           <ul>
-            {listed.map((field) => (
+            {listed.map(([field, label]) => (
               <li key={field}>
-                {LABELS[field]}: {problemText(field)}
+                {label ? `${label}: ` : ""}
+                {problemText(field)}
               </li>
             ))}
           </ul>
         </section>
       ) : null}
-
-      {notice ? <StatusMessage message={notice} variant="error" /> : null}
 
       <Field
         label="Name"

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FIELD_PROBLEMS } from "../../api/messages";
+import { FIELD_PROBLEMS, type ProblemKey } from "../../api/messages";
 import { Field } from "../../shared/ui/Field";
 import { validatePartySize } from "./validators";
 
@@ -7,6 +7,8 @@ interface DateAndPartyProps {
   date: string;
   partySize: string;
   disabled: boolean;
+  /** Problems the server reported for these two fields. */
+  serverProblems?: { date?: ProblemKey; partySize?: ProblemKey };
   onDateChange: (value: string) => void;
   onPartySizeChange: (value: string) => void;
 }
@@ -16,6 +18,7 @@ export function DateAndParty({
   date,
   partySize,
   disabled,
+  serverProblems,
   onDateChange,
   onPartySizeChange,
 }: DateAndPartyProps) {
@@ -28,7 +31,7 @@ export function DateAndParty({
         type="date"
         value={date}
         disabled={disabled}
-        problem={dateIsBad ? FIELD_PROBLEMS.date : undefined}
+        problem={dateIsBad ? FIELD_PROBLEMS.date : problemText(serverProblems?.date)}
         onChange={(event) => {
           setDateIsBad(event.currentTarget.validity.badInput);
           onDateChange(event.currentTarget.value);
@@ -41,11 +44,15 @@ export function DateAndParty({
         autoComplete="off"
         value={partySize}
         disabled={disabled}
-        problem={partyProblem ? FIELD_PROBLEMS[partyProblem] : undefined}
+        problem={problemText(partyProblem ?? serverProblems?.partySize)}
         onChange={(event) => {
           onPartySizeChange(event.currentTarget.value);
         }}
       />
     </div>
   );
+}
+
+function problemText(key: ProblemKey | undefined): string | undefined {
+  return key ? FIELD_PROBLEMS[key] : undefined;
 }
