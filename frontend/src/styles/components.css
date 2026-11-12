@@ -125,3 +125,75 @@
     transform: rotate(360deg);
   }
 }
+
+.date-party,
+.details,
+.times-region {
+  margin-bottom: var(--space-4);
+}
+
+.time-period {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.time-period legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.time-period__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.time-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.time-choice input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
+.time-choice--selected {
+  border-width: 4px;
+  border-color: var(--color-primary);
+  font-weight: 600;
+}
+
+.summary,
+.details-list {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.summary p,
+.details-list li {
+  margin: 0 0 var(--space-1);
+}
+
+.summary__label {
+  font-weight: 600;
+}
+
+.summary__label::after {
+  content: ":";
+}
