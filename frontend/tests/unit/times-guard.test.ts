@@ -61,6 +61,36 @@ describe("useBookableTimes - the latest request wins (FR-003)", () => {
     if (state.status === "ready") expect(state.periods[0]?.name).toBe("B-period");
   });
 
+  it("ignores a late answer even when the client does not honour the abort signal", async () => {
+    const client = new FakeApiClient();
+    const gateA: Deferred<ReturnType<typeof timesOk>> = deferred();
+    const gateB: Deferred<ReturnType<typeof timesOk>> = deferred();
+    const gates = [gateA, gateB];
+    let call = 0;
+    client.getTimes = () => {
+      const gate = gates[call];
+      call += 1;
+      if (!gate) throw new Error("unexpected call");
+      return gate.promise;
+    };
+    const { result, rerender } = renderHook(({ party }) => useBookableTimes("2026-11-14", party), {
+      wrapper: wrapperFor(client),
+      initialProps: { party: "4" },
+    });
+    rerender({ party: "2" });
+    await act(async () => {
+      gateB.resolve(timesOk([{ name: "B-period", times: ["21:00"] }]));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      gateA.resolve(timesOk([{ name: "A-period", times: ["12:00"] }]));
+      await Promise.resolve();
+    });
+    const state = result.current.state;
+    expect(state.status).toBe("ready");
+    if (state.status === "ready") expect(state.periods[0]?.name).toBe("B-period");
+  });
+
   it("an aborted result never sets state", async () => {
     const client = new FakeApiClient();
     const gate: Deferred<void> = deferred();

@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "../../src/api/client";
@@ -119,6 +119,30 @@ describe("booking page - confirmation", () => {
     const button = screen.getByRole("button", { name: "Confirm booking" });
     await user.dblClick(button);
     await user.type(screen.getByLabelText("Phone"), "{Enter}{Enter}");
+    expect(client.create.calls).toHaveLength(1);
+    await act(async () => {
+      gate.resolve();
+      await Promise.resolve();
+    });
+    await screen.findByRole("heading", { level: 1, name: "Your table is booked" });
+    expect(client.create.calls).toHaveLength(1);
+  });
+
+  it("two submits in the same tick still send exactly one request (the lock, not only the disabled button)", async () => {
+    const client = new FakeApiClient();
+    const gate: Deferred<void> = deferred();
+    client.script(client.times, timesOk()).script(client.create, createOk());
+    client.gate(client.create, gate);
+    renderApp({ client });
+    const user = userEvent.setup();
+    await bookUpTo(user);
+    const form = screen.getByRole("button", { name: "Confirm booking" }).closest("form");
+    expect(form).not.toBeNull();
+    act(() => {
+      if (!form) return;
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
     expect(client.create.calls).toHaveLength(1);
     await act(async () => {
       gate.resolve();

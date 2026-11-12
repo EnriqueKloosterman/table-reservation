@@ -29,6 +29,13 @@ describe("booking page - choosing a time", () => {
     expect(client.times.calls).toHaveLength(0);
   });
 
+  it("puts no min or max on the date input; the server is the only authority on dates", () => {
+    setup();
+    const date = screen.getByLabelText("Date");
+    expect(date).not.toHaveAttribute("min");
+    expect(date).not.toHaveAttribute("max");
+  });
+
   it("has exactly one h1 'Book a table'", () => {
     setup();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
