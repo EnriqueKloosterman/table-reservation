@@ -64,8 +64,7 @@ files.
 | Frontend: dates and times | PASS | Formatting from `YYYY-MM-DD` parts through `Intl` with `timeZone: "UTC"`; never `new Date(string)`; tested at every offset UTC-12..UTC+14 and in two browser time zones. |
 | Frontend: language | PASS | English only, no switcher (FR-031). |
 
-No violations; Complexity Tracking is empty. One divergence from the spec is recorded under
-[Spec alignment](#spec-alignment).
+No violations; Complexity Tracking is empty. See [Spec alignment](#spec-alignment).
 
 ## Dependency justification
 
@@ -102,15 +101,11 @@ and any font or script from a CDN.
 
 ## Spec alignment
 
-- **Date control `min`** (the only divergence): spec edge case "past dates cannot be picked" and the
-  Assumptions line "the date control offers today onward from the visitor's clock as a convenience"
-  conflict with the directive that the visitor's clock is used for no rule and that the date field
-  validates format only. This plan follows the directive: no `min` attribute, no client-side
-  past-date error; the server's `too_soon` / `too_far_ahead` answers are the single authority and
-  have their own messages. Consequence: a customer can type a past date and gets the plain "too soon"
-  message instead of being blocked earlier. The spec text is optional convenience ("as a
-  convenience"), so no requirement (FR-xxx) is broken. If the spec's convenience is wanted, it is a
-  one-line addition later.
+- **Date control `min`**: resolved. The spec (Edge Cases "Dates" and Assumptions) now states that the
+  visitor's clock is used for no rule, the date control has no `min`/`max`, and only the date format is
+  validated; the server's `too_soon` / `too_far_ahead` answers are the single authority and have their
+  own messages. A past date typed or picked therefore gets the plain "too soon" message. No divergence
+  remains between spec and plan.
 - Everything else is as specified. The cancellation path is `/cancel` (the backend default
   `CANCEL_LINK_BASE_URL=http://localhost:5173/cancel`), so no backend configuration change is needed.
 
