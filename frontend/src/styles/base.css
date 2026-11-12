@@ -1,0 +1,45 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+  margin: 0 0 var(--space-3);
+}
+
+:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+  .status--error {
+    border-left-style: double;
+  }
+  .time-choice input:checked + span {
+    outline: 3px solid Highlight;
+  }
+}
