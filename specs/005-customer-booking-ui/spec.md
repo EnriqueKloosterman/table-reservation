@@ -107,6 +107,10 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 - **Cancellation code typed by hand**: leading and trailing spaces from copy-paste are ignored; an empty field cannot be submitted.
 - **Page opened by a browser prefetch or link scanner**: nothing is cancelled because the cancellation only happens after an explicit button press.
 - **Browser back/forward and reload during the booking flow**: reloading the booking page starts a fresh booking; going back from the confirmation does not resubmit.
+- **Customer leaves while a request is in flight**: an answer that arrives after the customer moved to the other destination (booking <-> cancellation) is ignored and never shown there. A booking already sent still completes at the server and its confirmation email is the proof; a cancellation already sent still completes at the server.
+- **Cancellation succeeded but the answer is unusable** (missing or malformed details): shown as a temporary failure with a retry; the retry is safe and ends in "already cancelled".
+- **Back button on the cancellation page**: Back from an outcome or from the manual-code state leaves the page to the previous history entry; it never resubmits and never restores a code.
+- **Server names a field the form does not show**: the problem is shown in the general form message ("Please check the details and try again."), never with the raw field name.
 - **Unknown or new reasons from the server**: if the server returns a reason or error the interface does not know, the customer sees a generic but plain message with a way to retry, never the raw value.
 
 ## Requirements *(mandatory)*
@@ -116,10 +120,10 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 **Booking: choosing a time**
 
 - **FR-001**: The customer MUST be able to choose a date and a party size (whole number 1–50) and see the bookable times for that day. On first opening, the date and party size MUST be empty (no starting values), no request for times is made, and a short prompt asks the customer to choose both; times are requested only once both are valid.
-- **FR-002**: Times MUST be grouped by service period, using the period names as returned by the server, in the order returned, and only periods with at least one time MUST appear.
+- **FR-002**: Times MUST be grouped by service period, using the period names as returned by the server, in the order returned, and only periods with at least one time MUST appear. An answer with no times and no reason (every period empty and no reason given) is unexpected and MUST show the generic plain message with a way to retry, never a blank list.
 - **FR-003**: Times MUST refresh automatically when the date or party size changes, and a late answer to an earlier choice MUST never replace the answer to the latest choice.
-- **FR-004**: When no time is bookable, the interface MUST show a plain-words reason specific to each of the reasons the server can give for an empty day (closed on that date, closed that weekday, too soon, too far ahead, party too large, fully booked, and outside service hours when applicable), and MUST let the customer change the date or party size without leaving the page.
-- **FR-005**: Choosing a time MUST be a deliberate selection that is visible (which time is selected) and changeable before confirming.
+- **FR-004**: When no time is bookable, the interface MUST show a plain-words reason specific to each of the reasons the server can give for an empty day (closed on that date, closed that weekday, too soon, too far ahead, party too large, fully booked, and outside service hours, which is shown whenever the server reports it, for an empty day or as a refusal on confirm), and MUST let the customer change the date or party size without leaving the page.
+- **FR-005**: Choosing a time MUST be a deliberate selection that is visible (which time is selected) and changeable before confirming. "Deliberate" means: no time is preselected, exactly one time can be selected at a time, and a time becomes selected only by an explicit choice of that time (click, tap, or keyboard selection), never by hovering, scrolling or the list being refreshed.
 
 **Booking: details and confirmation**
 
@@ -128,35 +132,35 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 - **FR-008**: On success, the interface MUST show the date, start time, end time, party size and guest name as returned by the server, and MUST tell the customer an email with the way to cancel is on its way.
 - **FR-009**: The secret cancellation code returned on success MUST NOT be displayed, stored, logged or put in the address, and MUST be discarded as soon as the confirmation is shown.
 - **FR-010**: While a confirmation request is in progress, further submissions MUST be impossible; a double click, a repeated Enter or a retry in flight MUST send exactly one request.
-- **FR-011**: If the server says the chosen time is no longer available, the interface MUST say so, MUST reload the times for the same date and party size, MUST clear only the selected time, and MUST keep the details already typed.
-- **FR-012**: If the server says the same email already holds an overlapping reservation, the interface MUST say so clearly, and MUST NOT create anything or reveal any information about the existing reservation.
-- **FR-013**: Every other documented refusal and error of the confirm step MUST have its own plain, specific message and next step; unexpected failures MUST show a general message with a way to retry.
+- **FR-011**: If the server says the chosen time is no longer available, the interface MUST say so, MUST reload the times for the same date and party size, MUST clear only the selected time, and MUST keep the details already typed. If that reload itself fails or the server cannot be reached, the times area MUST show the error or unreachable state with a retry, no time stays selected, and the typed details are still kept.
+- **FR-012**: If the server says the same email already holds an overlapping reservation, the interface MUST say so clearly, and MUST NOT create anything or reveal any information about the existing reservation: the message may say only that the email already has a reservation around the chosen time, and MUST NOT show its date, time, party size, guest name or any identifier.
+- **FR-013**: Every other documented refusal and error of the confirm step MUST have its own plain, specific message and next step; unexpected failures MUST show a general message that says the reservation could not be completed, advises checking email first, and offers a retry control.
 - **FR-014**: When the outcome of a confirmation is unknown (connection lost after sending), the interface MUST say so and advise checking email before trying again, rather than claiming success or failure.
-- **FR-015**: From the confirmation, the customer MUST be able to start a new booking; the previous guest details MUST NOT remain in the form.
+- **FR-015**: From the confirmation, the customer MUST be able to start a new booking; the previous guest details MUST NOT remain in the form. The guest's name, email and phone MUST be held in memory only while booking: never written to storage, logs or the address, and discarded when a booking is completed or a new one is started. While a confirmation request is in progress, the date, party size, time and detail fields MUST be locked (read-only/disabled) so they cannot change under the request.
 
 **Cancellation**
 
-- **FR-016**: The cancellation page MUST read the secret code from the fragment of the link, MUST remove it from the address bar immediately after reading, MUST keep it only in memory, and MUST NOT write it to storage, logs, analytics or the address query.
+- **FR-016**: The cancellation page MUST read the secret code from the fragment of the link, MUST remove it from the address bar immediately after reading, MUST keep it only in memory, and MUST NOT write it to storage, logs, analytics or the address query. "Only in memory" means in the cancellation page's own runtime state: not in global objects, not in anything sent to an error reporter, and not printed to the console. Removal from the address MUST replace the current history entry (no entry containing the code remains), and requests and navigations MUST NOT send the address as a referrer.
 - **FR-017**: Opening the cancellation page MUST NOT cancel anything; cancelling MUST require an explicit press of a clearly labelled confirmation button, and MUST send at most one request per press while one is in progress.
 - **FR-018**: The page MUST show a distinct, plain outcome for each of: cancelled (with date, start time, end time and party size), already cancelled, cannot be cancelled because the reservation has started or ended, and not found.
 - **FR-019**: When the link has no code, the page MUST say so and MUST offer a field to type or paste the code, trimmed of surrounding spaces, with the same explicit confirmation button; the field MUST NOT be submittable when empty.
-- **FR-020**: The code typed by hand MUST be treated like a code from the link: kept only in memory, never stored or logged, and cleared from the field after the outcome is final.
+- **FR-020**: The code typed by hand MUST be treated like a code from the link: kept only in memory, never stored or logged, and cleared from the field after the outcome is final. A temporary failure (server error or unreachable server) is not a final outcome: the code stays in memory so the customer can retry, and it is cleared as soon as a final outcome is shown or the customer leaves the page.
 - **FR-021**: After any final outcome, the customer MUST have a way to go to the booking page.
 
 **Navigation and structure**
 
-- **FR-022**: The interface MUST offer two destinations to the customer: the booking page and the cancellation page. The cancellation page MUST be reachable by the exact address used in the email link.
+- **FR-022**: The interface MUST offer two destinations to the customer: the booking page and the cancellation page. The cancellation page MUST be reachable by the exact address used in the email link (`/cancel`). Every screen MUST have exactly one main heading naming the current step or outcome (for example "Book a table", "Your table is booked", "Cancel your reservation"), and the browser tab title MUST include the service name.
 - **FR-023**: The interface MUST use only the public operations of the server and MUST NOT require or offer any sign-in or customer account.
 
 **Quality**
 
-- **FR-024**: Every screen MUST be usable from a 360 px wide display up to a desktop display, without horizontal scrolling of the page.
-- **FR-025**: Every control MUST be reachable and operable using only a keyboard; every form field MUST have an associated visible label; focus MUST move to the new content when a step changes (form shown, confirmation shown, outcome shown).
-- **FR-026**: Validation errors and status changes (loading complete, times refreshed, outcome shown, request failed) MUST be announced to assistive technology; colour MUST NOT be the only way of conveying an error or a selection, and contrast MUST be sufficient for normal text.
-- **FR-027**: Every screen that depends on the server MUST have explicit loading, empty (where applicable), error and server-unreachable states; the unreachable state MUST be distinguishable from the server-error state and MUST offer a retry.
+- **FR-024**: Every screen MUST be usable from a 360 px wide display up to a 1920 px wide display, without horizontal scrolling of the page, and MUST remain usable (no loss of content or function, no horizontal page scrolling) with text enlarged to 200 %. On wide displays the content width MUST be limited so lines stay readable. Interactive targets MUST be at least 44 by 44 px.
+- **FR-025**: Every control MUST be reachable and operable using only a keyboard; every form field MUST have an associated visible label; focus MUST move to the new content when a step changes: to the main heading of the form, confirmation or outcome when it is shown, and to the summary of field problems when validation fails. The focused element MUST always have a visible focus indicator.
+- **FR-026**: Validation errors and status changes (loading complete, times refreshed, outcome shown, request failed) MUST be announced to assistive technology: neutral changes (loading complete, times refreshed, outcome shown) politely, and validation problems and failures assertively, using the texts of the message catalog. Colour MUST NOT be the only way of conveying an error or a selection (including in forced-colours/high-contrast modes), contrast MUST be at least 4.5:1 for normal text and 3:1 for large text and control boundaries, and animations MUST be reduced or removed when the visitor asks for reduced motion.
+- **FR-027**: Every screen that depends on the server MUST have explicit loading, empty (where applicable), error and server-unreachable states; the unreachable state MUST be distinguishable from the server-error state and MUST offer a retry. A request that gets no answer within 8 seconds MUST be treated as unreachable, so the message appears within the 10 seconds of SC-009.
 - **FR-028**: The customer MUST NEVER be shown technical details: error codes, status numbers, stack traces, raw server messages, internal reasons, field paths, or server addresses.
-- **FR-029**: Dates and times MUST be displayed exactly as the server returns them (restaurant-local), without conversion to the visitor's time zone, and in an unambiguous format (24-hour times).
-- **FR-030**: If the server's address is missing or invalid in the configuration, the application MUST show a clear "service not available" screen instead of a broken page.
+- **FR-029**: Dates and times MUST be displayed exactly as the server returns them (restaurant-local), without conversion to the visitor's time zone, and in an unambiguous format: dates with the weekday, day, month name and year (for example "Saturday 14 November 2026"), times as 24-hour "HH:mm".
+- **FR-030**: If the server's address is missing or invalid in the configuration, the application MUST show a clear "service not available" screen instead of a broken page. A well-formed but wrong address cannot be told apart from an unreachable server and is shown as the unreachable state with a retry.
 - **FR-031**: All text shown to the customer MUST be in English; the interface MUST NOT include a language switcher.
 
 ### Key Entities *(include if feature involves data)*
@@ -171,13 +175,13 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 
 ### Measurable Outcomes
 
-- **SC-001**: A first-time customer on a phone can go from the opening of the booking page to a confirmed reservation in under 2 minutes, with no instructions, in at least 9 out of 10 usability test runs.
-- **SC-002**: After changing the date or party size, the new times (or the reason for none) are shown within 2 seconds in normal conditions.
+- **SC-001**: A first-time customer on a phone can go from the opening of the booking page to a confirmed reservation in under 2 minutes, with no instructions, in at least 9 out of 10 usability test runs. A run is one participant who did not build the interface, using a 360 px wide phone and the test double server, timed from page opening to the confirmation; at least 10 runs are done before release.
+- **SC-002**: After changing the date or party size, the new times (or the reason for none) are shown within 2 seconds in normal conditions, meaning a server that answers within 1 second and a mobile 4G or better connection.
 - **SC-003**: Every one of the documented reasons for an empty day, and every documented refusal on confirm and on cancel, produces its own distinct message, verified by an automated test per reason, and no screen shows a code, a status number or a raw server message.
 - **SC-004**: In 100 % of tests with double click, repeated Enter or repeated cancel presses, exactly one request is sent and at most one reservation is created or one cancellation requested.
 - **SC-005**: In 100 % of tests, opening the cancellation page sends no cancellation request, and the secret code is absent from the address bar from the moment the page is displayed.
-- **SC-006**: Both flows can be completed using only the keyboard, and show no horizontal scrolling at 360 px wide, as verified by an automated check on every screen and a manual check before release.
-- **SC-007**: The interface passes an automated accessibility check with zero serious or critical violations on every screen and state (loading, empty, error, unreachable, success).
+- **SC-006**: Both flows can be completed using only the keyboard, and show no horizontal scrolling at 360 px wide, as verified by an automated check on every screen and state listed in the screens table of `contracts/ui-routes.md`, and a manual check before release.
+- **SC-007**: The interface passes an automated accessibility check against WCAG 2.1 level AA rules with zero serious or critical violations on every screen and state listed in the screens table of `contracts/ui-routes.md` (loading, empty, error, unreachable, success, outcomes).
 - **SC-008**: When a chosen time is taken in the meantime, 100 % of the details typed (name, email, phone) are still in the form after the times refresh.
 - **SC-009**: With the server stopped, every screen shows the "cannot reach the server" message within 10 seconds, with a retry control, and no blank or broken page.
 - **SC-010**: Every time displayed matches exactly the value returned by the server, also when the browser runs in a different time zone, as verified by a test in at least two time zones.
@@ -186,12 +190,14 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 
 - The interface is a separate web application in the repository's `frontend/` folder, as the project constitution requires; the backend is not changed in any way.
 - Only the public operations of the backend are used: looking up bookable times, creating a reservation and cancelling with a code. No operation requiring sign-in is used.
-- The reasons for empty days and the refusal codes that the backend documents (in its published API description) are the closed set the interface must handle; a reason the interface does not recognize gets a generic plain message.
+- The reasons for empty days and the refusal codes that the backend documents (in its published API description) are the closed set the interface must handle; a reason the interface does not recognize gets a generic plain message. The set is pinned by types generated from the backend's published description, and a drift check fails when the backend's description differs from the pinned one.
+- "Plain words" means short sentences in everyday English with no jargon, saying what happened and what the customer can do next, and never quoting codes or technical terms.
+- Where a message says to "contact the restaurant", it is advice only: the server provides no contact details and this feature shows none; the customer uses the restaurant's usual means (for example the confirmation email's sender).
 - Restaurant name, opening hours and period names are not hard-coded: periods come from the server, and the interface shows no opening-hours page or restaurant presentation in this feature beyond a simple title.
 - The language of the interface is English (consistent with the emails sent by the backend); other languages are out of scope.
 - The date control only offers the restaurant's "today" onward based on the visitor's clock as a convenience; the server remains the authority for "too soon" and "too far ahead".
-- The cancellation link is of the form `<site address>/<cancellation page path>#code=<code>`; the exact path is chosen in the plan and the backend's configured link base is set to match (configuration, not a code change).
+- The cancellation link is of the form `<site address>/<cancellation page path>#code=<code>`; the path is `/cancel`, and before release the backend's configured link base MUST be set to `<site address>/cancel` (configuration, not a code change).
 - There is no way to retrieve a lost secret code, as the backend never returns it again; a customer who lost the email contacts the restaurant. The interface does not promise otherwise.
 - The retry of a booking whose answer was lost is treated by the backend as a duplicate; the interface explains this in plain words, since the backend has no way to repeat a request safely.
-- Users have a modern browser (current versions of the major ones, desktop and mobile) and an internet connection; offline use is out of scope.
+- Users have a modern browser (the two latest major versions of Chrome, Edge, Firefox and Safari on desktop, and of Chrome on Android and Safari on iOS; automated browser tests run on Chromium only) and an internet connection; offline use is out of scope.
 - Out of scope: the staff panel, customer accounts, modifying or moving a reservation, payments, multiple languages, offline use, analytics, and any change to the backend.

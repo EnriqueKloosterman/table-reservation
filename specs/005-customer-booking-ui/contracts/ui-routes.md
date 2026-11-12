@@ -51,4 +51,6 @@ unreachable state differs from the server-error state and has a retry.
 
 - Date: `Saturday 14 November 2026` (English, from the `YYYY-MM-DD` parts via `Intl` in UTC).
 - Time: the `HH:mm` string exactly as returned (24-hour).
-- Never converted to the visitor's time zone; the visitor's clock is used for no rule.
+- Never converted to the visitor's time zone. The visitor's clock is used only to set the earliest
+  selectable day of the date control (a convenience, spec Edge Cases "Dates"); it never decides
+  "too soon" or "too far ahead", which come from the server.

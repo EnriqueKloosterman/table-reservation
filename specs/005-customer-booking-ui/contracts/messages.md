@@ -66,7 +66,7 @@ taken." followed by the refreshed list; for the other reasons the table above is
 | Party size | Enter a whole number from 1 to 50. |
 | Name | Enter your name (up to 100 characters). |
 | Email | Enter a valid email address (up to 254 characters). |
-| Phone | Enter a phone number with 7 to 20 digits (spaces, hyphens, parentheses and a leading + are allowed). |
+| Phone | Enter a phone number with at least 7 digits and at most 20 characters (spaces, hyphens, parentheses and a leading + are allowed). |
 | Cancellation code | Enter the cancellation code from your email. |
 
 Field problems are prefixed visually and in text with "Error:" so color is never the only signal.
