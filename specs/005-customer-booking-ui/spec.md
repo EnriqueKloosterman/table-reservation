@@ -8,6 +8,12 @@
 
 **Input**: User description: "Build the customer-facing web interface for the table reservation system. The backend (features 001 to 004) is complete and documented through its OpenAPI contract. This feature is the customer side only: the staff panel is a later feature. It lives in frontend/ and uses the public operations of the backend only; no customer accounts." (full booking flow, cancellation flow and quality requirements as given by the user)
 
+## Clarifications
+
+### Session 2026-11-12
+
+- Q: When the booking page first opens, should the date and party size already have starting values, with times loaded straight away, or should the customer choose both first? → A: No starting values; times appear only after the customer picks both a date and a party size.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Book a table (Priority: P1)
@@ -109,7 +115,7 @@ The whole interface works on a 360 px wide phone up to a desktop screen, can be 
 
 **Booking: choosing a time**
 
-- **FR-001**: The customer MUST be able to choose a date and a party size (whole number 1–50) and see the bookable times for that day.
+- **FR-001**: The customer MUST be able to choose a date and a party size (whole number 1–50) and see the bookable times for that day. On first opening, the date and party size MUST be empty (no starting values), no request for times is made, and a short prompt asks the customer to choose both; times are requested only once both are valid.
 - **FR-002**: Times MUST be grouped by service period, using the period names as returned by the server, in the order returned, and only periods with at least one time MUST appear.
 - **FR-003**: Times MUST refresh automatically when the date or party size changes, and a late answer to an earlier choice MUST never replace the answer to the latest choice.
 - **FR-004**: When no time is bookable, the interface MUST show a plain-words reason specific to each of the reasons the server can give for an empty day (closed on that date, closed that weekday, too soon, too far ahead, party too large, fully booked, and outside service hours when applicable), and MUST let the customer change the date or party size without leaving the page.
