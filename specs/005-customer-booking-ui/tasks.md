@@ -1,0 +1,265 @@
+---
+
+description: "Task list for feature 005-customer-booking-ui (Customer Booking Interface)"
+---
+
+# Tasks: Customer Booking Interface
+
+**Input**: Design documents from `/specs/005-customer-booking-ui/`
+
+**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md), [data-model.md](./data-model.md), [contracts/api-usage.md](./contracts/api-usage.md), [contracts/messages.md](./contracts/messages.md), [contracts/ui-routes.md](./contracts/ui-routes.md), [quickstart.md](./quickstart.md)
+
+**Tests**: REQUIRED. Constitution Principle II (Test-First, NON-NEGOTIABLE): Vitest + Testing Library tests are written first and **observed failing (RED)** before the implementation. Every story phase starts with test tasks followed by an explicit "run and confirm RED" task; the RED result (command, number of failing tests, one-line reason) is appended under that task as a note. No unit/component test needs the backend: the API layer is replaced by `FakeApiClient`. Playwright (e2e) tests mock the network with `page.route` and run against `vite preview`; they are verification suites and may pass when first written, but each proves it can fail through a temporary mutation check (see the Polish phase).
+
+**Organization**: Tasks are grouped by user story. Everything shared by both pages (generated types, API client, message catalog, date formatting, validators, router, shared UI, test support) lives in Foundational.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
+- **[Story]**: US1-US4 (user stories of spec.md)
+- All paths are relative to the repository root; all code lives under `frontend/`. **`backend/` is never modified** (verified in the last task).
+
+## Conventions used by every task
+
+- **Runtime dependencies are `react` and `react-dom` only.** Dev dependencies are exactly the pinned list in plan.md "Dependency justification" (exact versions, no `^`). Never use `--force` or `--legacy-peer-deps`; if `npm install` reports a conflict, stop and report it.
+- TypeScript strict with `noUncheckedIndexedAccess`; ESM; no `any`. Wire types come only from the generated `src/api/schema.d.ts`; never hand-write a response type.
+- **Customer text lives only in `src/api/messages.ts`** (and the field-problem catalog in the same file). Components receive `Message` objects or catalog keys; no inline English sentences for refusals, errors or outcomes. Static labels/headings (for example "Book a table", "Name") may live in the component.
+- **Never render, store, log or put in the URL**: `secretCode`, the cancellation code, status numbers, error codes, field paths, server messages or server addresses. No `console.*`, `localStorage`, `sessionStorage`, `indexedDB`, `document.cookie`; no `new Date(<string>)`, `toISOString`, `Date.now`.
+- Dates are formatted only by `src/shared/dates.ts`; times are shown exactly as returned (`HH:mm`). No `min`/`max` on the date input and no client-side past-date error (plan "Spec alignment": the server's `too_soon` / `too_far_ahead` answers are the only authority).
+- Components are tested through what the user sees (roles, labels, text), never through implementation details. Use `@testing-library/user-event`.
+- Focus and announcements: one `h1` per screen state; focus moves to the new `h1` (`tabIndex={-1}`) or to the error summary when a step changes; neutral changes go to the polite `role="status"` region, failures and validation to the `role="alert"` region, using catalog texts.
+- Test helpers (`tests/support/`): `FakeApiClient` (scripted responses per operation, request counters, optional `deferred()` gates), `renderApp({ client, path, initialCancelCode })`, `deferred()`, `withTimeZone(tz, fn)`.
+
+---
+
+## Phase 1: Setup
+
+**Purpose**: Create the independent npm project and its tooling. No application code yet.
+
+- [ ] T001 Create `frontend/package.json`: `"private": true`, `"type": "module"`, `"engines": { "node": ">=22.12" }`, no workspaces, dependencies `react` and `react-dom` at 19.3.1 and devDependencies at the exact versions of plan.md "Dependency justification" (vite 8.3.8, @vitejs/plugin-react 6.3.0, typescript 5.9.3, eslint and @eslint/js 9.39.5, typescript-eslint 8.72.2, eslint-plugin-react-hooks 7.1.1, eslint-plugin-jsx-a11y 6.10.2, globals 17.14.0, vitest 5.1.0, jsdom 27.4.0, @testing-library/react 16.3.3, @testing-library/dom 10.4.2, @testing-library/user-event 14.6.10, @testing-library/jest-dom 7.0.1, openapi-typescript 7.13.0, @playwright/test 1.65.0, @axe-core/playwright 4.14.0, @types/react 19.3.0, @types/react-dom 19.3.0, @types/node 22.20.5). Scripts: `dev` (`vite`), `build` (`tsc --noEmit && vite build`), `preview`, `typecheck` (`tsc --noEmit`), `lint` (`eslint .`), `test` (`vitest run`), `e2e` (`playwright test`), `api:types`, `api:check` (both `node scripts/api-types.mjs [--check]`).
+- [ ] T002 Run `npm install` in `frontend/` to create `frontend/package-lock.json` (no `--force`, no `--legacy-peer-deps`); confirm there are no peer-dependency errors and `npm ls --depth=0` matches T001. Add `frontend/.gitignore` (`node_modules/`, `dist/`, `.env`, `test-results/`, `playwright-report/`, `coverage/`).
+- [ ] T003 [P] Create `frontend/tsconfig.json` (strict, `noUncheckedIndexedAccess`, `jsx: "react-jsx"`, `moduleResolution: "bundler"`, `noEmit`, includes `src`, `tests`, `e2e`, `scripts`, config files) and `frontend/vite.config.ts` (`@vitejs/plugin-react`, `server.port 5173`, `preview.port 4173`).
+- [ ] T004 [P] Create `frontend/index.html` with `<html lang="en">`, viewport meta, `<meta name="referrer" content="no-referrer">`, `<title>La Mesa</title>` (service name; per-screen titles are set by T067), `<div id="root">` and `<script type="module" src="/src/main.tsx">`. No fonts, no third-party scripts.
+- [ ] T005 [P] Create `frontend/eslint.config.js` (flat config): `@eslint/js` recommended, `typescript-eslint` strict-type-checked, `eslint-plugin-react-hooks` recommended, `eslint-plugin-jsx-a11y` recommended; rules `no-console: error`; `no-restricted-globals` for `localStorage`, `sessionStorage`, `indexedDB`; `no-restricted-properties` for `document.cookie`, `window.localStorage`, `window.sessionStorage`, `Date.now`. (`new Date(<string>)` is enforced by the guards test T015.) Ignore `dist`, `src/api/schema.d.ts`.
+- [ ] T006 [P] Create `frontend/vitest.config.ts` (environment `jsdom`, `setupFiles: ["tests/support/setup.ts"]`, `include: ["tests/**/*.test.{ts,tsx}"]`, `globals: false`) and `frontend/tests/support/setup.ts` (import `@testing-library/jest-dom/vitest`; `afterEach(cleanup)`; reset `location` to `/` and `history` state).
+- [ ] T007 [P] Create `frontend/playwright.config.ts`: `testDir: "e2e"`, Chromium only; `webServer` runs `npm run build && npm run preview -- --port 4173 --strictPort` with `VITE_API_BASE_URL=http://127.0.0.1:3999`; `baseURL http://127.0.0.1:4173`; projects `mobile-360` (viewport 360x740) and `desktop` (1280x800); a project `tz-madrid` (`timezoneId: "Europe/Madrid"`) and `tz-honolulu` (`timezoneId: "Pacific/Honolulu"`) used by the time-zone spec.
+- [ ] T008 [P] Create `frontend/.env.example` (`VITE_API_BASE_URL=http://localhost:3000`) and `frontend/README.md` skeleton (sections: Install, Configure, Scripts, Backend settings `CORS_ORIGINS` / `CANCEL_LINK_BASE_URL=http://localhost:5173/cancel`, Playwright browser install, Usability test protocol). Content is completed in the Polish phase.
+- [ ] T009 Create `frontend/scripts/api-types.mjs` using the `openapi-typescript` Node API (`openapiTS`, `astToString`): reads `API_SPEC_URL` (default `http://localhost:3000/openapi.json`); without `--check` writes `src/api/schema.d.ts`; with `--check` generates in memory and exits non-zero (with a short, plain message) if the output differs from the committed file or the spec cannot be fetched. Works on Windows/macOS/Linux with no shell-specific env syntax.
+- [ ] T010 Generate and commit `frontend/src/api/schema.d.ts`: obtain the backend's `/openapi.json` from a backend started with a **throwaway configuration** (a throwaway database name or mongodb-memory-server; never the user's `.env`), run `npm run api:types`, then `npm run api:check` and confirm exit 0. Confirm the file contains `AvailabilityReason`, `ConflictReason`, the three operations (`/availability/times`, `/reservations`, `/reservations/cancel`) and the `ErrorResponse` code enum. Stop the backend afterwards.
+
+**Checkpoint**: `npm run typecheck`, `npm run lint` and `npm test` (no tests yet; use `--passWithNoTests` for this one run) all succeed.
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: Everything both pages need. **No user story can start until this is complete.**
+
+### Tests for the foundation (write first)
+
+- [ ] T011 [P] Write `frontend/tests/unit/dates.test.ts`: `formatDate("2026-11-14")` is `"Saturday 14 November 2026"`; leap day `"2028-02-29"` works; `"2026-02-30"`, `"2026-13-01"`, `"14/11/2026"`, `""` return the neutral text and never throw; `formatTime("09:30")` is unchanged and a malformed value gets the neutral text; the same output for every `process.env.TZ` in `Etc/GMT+12`, `Pacific/Honolulu`, `America/Los_Angeles`, `UTC`, `Europe/Madrid`, `Asia/Kolkata`, `Pacific/Kiritimati` (restore TZ in `afterEach`); a DST-change date (`2026-03-29`, `2026-10-25`) formats the same.
+- [ ] T012 [P] Write `frontend/tests/unit/config.test.ts`: `readConfig` accepts `http://localhost:3000` and `https://api.example.com/` (trailing slash removed); rejects `undefined`, `""`, `"localhost:3000"`, `"ftp://x"`, `"http://u:p@x"`, `"http://x/path"`, `"http://x?a=1"`, `"http://x#f"`, `"not a url"`, each as `{ ok: false }` with no other field.
+- [ ] T013 [P] Write `frontend/tests/unit/messages.test.ts`: every member of the generated `AvailabilityReason`, `ConflictReason` and error-code enums has a message with non-empty `title` and `body`; all availability messages are pairwise distinct; `messageForAvailability("brand_new")`, `messageForConflict(...)`, `messageForCode(...)` return the generic message for unknown values; no message text matches `/\b\d{3}\b/`, contains `/`, `{`, `_`, or any enum value string; the field-problem catalog has an entry for date, party size, name, email, phone, cancellation code and the unknown-field form message "Please check the details and try again."; the exact copy of `contracts/messages.md` is used for the client-side conditions (server error on times / create, unreachable on times / create / cancel, config, generic, idle prompt, confirmation, cancelled).
+- [ ] T014 [P] Write `frontend/tests/unit/client.test.ts` (injected fake `fetch`): for each of the three operations, request URL/method/body, and that every request has `credentials: "omit"`, `cache: "no-store"`, `referrerPolicy: "no-referrer"`, and that `POST` has `Content-Type: application/json`; the cancellation code appears only in the body, never in the URL; classification table of `api-usage.md` (fetch rejects -> `unreachable`; timeout after 8 s with fake timers -> `unreachable`; caller abort -> `aborted`; 500/503 -> `serverError`; 2xx with malformed or wrong-shape body -> `serverError`; 4xx with `{ error: { code, message, details } }` -> `refusal` with typed code; 4xx with other body -> `serverError`; unknown error code string -> `refusal` carrying it); `createReservation` success returns an object whose own keys are exactly `date, startTime, endTime, partySize, guestName` and `JSON.stringify` of the result contains neither the `secretCode` value, `"secretCode"`, `"table"`, the email nor the phone; validation refusal keeps field names only (server `reason` text discarded) and maps unknown field names to `"form"`; `NO_AVAILABILITY` carries the typed reason; `CONFLICT` carries the conflict reason; `cancelReservation` success keeps only `date, startTime, endTime, partySize`; `getTimes` success with empty `periods` keeps `reason`, drops empty periods defensively.
+- [ ] T015 [P] Write `frontend/tests/unit/guards.test.ts`: reads every file under `src/` (except `schema.d.ts`) and fails on `console.`, `localStorage`, `sessionStorage`, `indexedDB`, `document.cookie`, `new Date(` with a non-numeric first argument (only `new Date(Date.UTC(`  is allowed), `toISOString`, `Date.now`, `eslint-disable` comments naming the restricted rules, and any `import` from outside `react`, `react-dom` and relative paths (runtime-dependency guard); also reads `package.json` and fails if `dependencies` has any key other than `react` and `react-dom`.
+- [ ] T016 [P] Write `frontend/tests/unit/router.test.ts`: `usePathname()` returns the current path and updates on `popstate` and on `navigate("/cancel")`; `navigate` uses `pushState`; an unknown path (for example `/foo`) is replaced by `/` via `replaceState` and renders as the booking destination.
+- [ ] T017 [P] Write `frontend/tests/unit/validators.test.ts` with the exact rules: **date**: `YYYY-MM-DD` that is a real calendar day, nothing else (no min/max, no past check); **party size** (text): whole number 1-50, no sign, decimals, exponent or leading zeros (`"0"`, `"51"`, `"2.5"`, `"+2"`, `"02"`, `"1e1"`, `""` invalid; `"1"`, `"50"` valid); **name**: trimmed, 1-100 characters (`"   "` invalid, 100 valid, 101 invalid); **email**: trimmed, one valid address, at most 254 characters, rejects display names (`"A <a@b.co>"`), lists (`"a@b.co, c@d.co"`), spaces inside, missing domain; **phone**: trimmed, only digits, spaces, hyphens, parentheses and an optional leading `+`, 7-20 characters with at least 7 digits (`"+34 600 123 456"` valid, `"123456"` invalid, `"12345678901234567890 1"` invalid by length, `"600-abc-123"` invalid, `"6+00123456"` invalid); **cancellation code**: trimmed, non-empty. Each result is a catalog key, never raw text.
+- [ ] T018 Run `npm test` in `frontend/` and confirm T011-T017 all FAIL because the modules do not exist (import errors count as RED only if the assertions cannot run; if so, first create empty exports so the failures are assertion failures). Append the RED result under this task.
+
+### Foundational implementation
+
+- [ ] T019 [P] Create `frontend/src/api/types.ts` exactly as in data-model.md: `BookableTimes`, `Confirmation` (`date, startTime, endTime, partySize, guestName` only), `CancellationDone`, `ApiResult<T, R>` (`success | refusal | serverError | unreachable`) plus the internal `aborted`, `BookingField`, `FieldProblem`, the refusal shapes typed on the generated enums (`TimesRefusal`, `CreateRefusal`, `CancelRefusal`) and the `ApiClient` interface (`getTimes`, `createReservation`, `cancelReservation`, each taking an optional `AbortSignal`).
+- [ ] T020 [P] Create `frontend/src/shared/dates.ts` per research R7: `formatDate` (strict `^\d{4}-\d{2}-\d{2}$`, calendar-day validation, `Date.UTC`, `Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })`, neutral text "Date not available" on bad input, never throws) and `formatTime` (validated `HH:mm` returned unchanged, neutral "Time not available" otherwise). Makes T011 pass.
+- [ ] T021 [P] Create `frontend/src/config/env.ts`: pure `readConfig(raw: string | undefined): { ok: true; apiBaseUrl: string } | { ok: false }` with the rules of data-model.md "Config" (URL parses, `http:`/`https:`, no credentials, query or fragment, path empty or `/`, trailing slash removed). Makes T012 pass.
+- [ ] T022 [P] Create `frontend/src/api/messages.ts` with all copy of `contracts/messages.md`: `type Message = { title: string; body: string; next?: string }`; `AVAILABILITY_MESSAGES: Record<AvailabilityReason, Message>`, `CONFLICT_MESSAGES: Record<ConflictReason, Message>`, `ERROR_CODE_MESSAGES: Record<ErrorCode, Message>` (typed on the generated enums so a new value fails `tsc`), `GENERIC_MESSAGE`, `messageForAvailability/Conflict/Code(value: string)` with runtime fallback to `GENERIC_MESSAGE`, the client-side condition messages, the `no_table_free` "That time was just taken." lead-in used after a failed confirm, and `FIELD_PROBLEMS` (date "Enter a valid date.", party size "Enter a whole number from 1 to 50.", name "Enter your name (up to 100 characters).", email "Enter a valid email address (up to 254 characters).", phone "Enter a phone number with at least 7 digits and at most 20 characters (spaces, hyphens, parentheses and a leading + are allowed).", code "Enter the cancellation code from your email.", form "Please check the details and try again."). Makes T013 pass.
+- [ ] T023 Create `frontend/src/api/client.ts`: `createApiClient({ baseUrl, fetch = globalThis.fetch, timeoutMs = 8000 }): ApiClient` per research R5 and `contracts/api-usage.md` (request options, one `AbortController` combining the 8 s timeout and the caller signal, classification rules 1-6, narrow runtime shape checks before mapping, allow-list construction of `Confirmation`/`CancellationDone` field by field, no spread, no logging, server `message` never propagated, field problems reduced to names). Makes T014 pass. Depends on T019, T010.
+- [ ] T024 [P] Create `frontend/src/features/booking/validators.ts`: `validateDate`, `validatePartySize`, `validateName`, `validateEmail`, `validatePhone`, and `validateCode` (exported for the cancel page) returning a `FIELD_PROBLEMS` key or `undefined`, with exactly the rules quoted in T017; plus `validateDraft(draft): Record<BookingField, ProblemKey | undefined>`. Makes T017 pass.
+- [ ] T025 [P] Create `frontend/src/shared/router.ts` per research R2 (`usePathname` with `useSyncExternalStore` on `popstate` + internal notification, `navigate(path)` with `pushState`, unknown path replaced by `/` with `replaceState`). Makes T016 pass.
+- [ ] T026 [P] Create `frontend/src/shared/request-state.ts` (`loading | empty | error | unreachable | ready` helpers) and `frontend/src/api/context.tsx` (`ApiClientProvider`, `useApiClient`; throws a plain developer error if used outside the provider).
+- [ ] T027 [P] Create `frontend/src/shared/a11y/LiveRegion.tsx` (persistent visually hidden `role="status"` polite region and `role="alert"` assertive region; texts are written after mount so they are announced; a single provider plus `useAnnounce()`) and `frontend/src/shared/a11y/useFocusOnChange.ts` (`useFocusOnChange(ref, key)` focuses an element with `tabIndex={-1}` when `key` changes, never on first mount of a static page unless asked).
+- [ ] T028 [P] Create the shared UI in `frontend/src/shared/ui/`: `Button.tsx` (disabled + busy label support, min 44x44), `Field.tsx` (visible `<label>`, hint, "Error:"-prefixed message linked with `aria-describedby`, `aria-invalid`), `StatusMessage.tsx` (renders a `Message`: title, body, next; `variant` info/error), `Spinner.tsx` (CSS-only, hidden from the accessibility tree with a text alternative nearby), `PageShell.tsx` (`header` with service name, `main`, `footer`, content width limited for wide screens, one `h1` supplied by the page).
+- [ ] T029 [P] Create `frontend/src/styles/tokens.css` (colour, spacing, focus-ring, target-size custom properties; text >= 4.5:1 and borders/focus >= 3:1 on both backgrounds; `@media (prefers-reduced-motion: reduce)` removes animations and transitions), `frontend/src/styles/base.css` (reset, typography in rem so 200 % text zoom works, `max-width` content column, `overflow-wrap: anywhere`, visible `:focus-visible` outline 3 px with offset, `@media (forced-colors: active)` rules so selection and errors do not rely on colour) and `frontend/src/styles/components.css` (layout for the shared UI; no fixed widths above 360 px minus gutters).
+- [ ] T030 [P] Create test support in `frontend/tests/support/`: `deferred.ts` (`deferred<T>()` returning `{ promise, resolve, reject }`), `fake-api-client.ts` (`FakeApiClient implements ApiClient`; scripted results per call or per queue, per-method call counters and recorded arguments, honours `AbortSignal` by resolving `aborted`, optional gate via `deferred()`), `render-app.tsx` (`renderApp({ client, path = "/", initialCancelCode = null, strict = true })` renders `<App>` inside `StrictMode`, sets `history` path first, returns Testing Library helpers), and `tz.ts` (`withTimeZone(tz, fn)`).
+- [ ] T031 Run `npm test`, `npm run typecheck` and `npm run lint` in `frontend/`: T011-T017 pass (GREEN) and everything is clean. Append the GREEN result under this task.
+
+**Checkpoint**: Foundation ready - API client, catalog, dates, validators, router and shared UI exist and are tested; user stories can start.
+
+---
+
+## Phase 3: User Story 1 - Book a table (Priority: P1) MVP
+
+**Goal**: Choose a date and party size, see bookable times grouped by service period, pick one, fill name/email/phone, confirm and see the confirmation (no secret code anywhere).
+
+**Independent Test**: With `FakeApiClient` returning times and a successful reservation, a user chooses date and party size, picks a time, fills the three fields and reaches the confirmation showing the right values (spec US1).
+
+### Tests for User Story 1 (write first)
+
+- [ ] T032 [P] [US1] Write `frontend/tests/component/booking-times.test.tsx`: first render has empty date and party size, shows "Choose a date and a party size to see the available times.", and made **zero** `getTimes` calls (FR-001); choosing only one of the two makes no call; choosing both makes exactly one call with `{ date, partySize }`; periods are grouped under their returned names, in the returned order, times in the returned order, and an empty period is not shown (FR-002); times are radios, **none preselected**, exactly one can be selected, selection only by click/tap or keyboard (Space/arrows), not changed when the list refreshes (FR-005); the selected time is visibly marked with a check mark and thicker border class (not only colour); changing the date or party size clears the selected time and requests again; party size `"0"`, `"51"`, `"2.5"` shows the party-size field problem and sends no request; loading state shows the spinner and "loading" text; formatted date and `HH:mm` shown as returned (FR-029).
+- [ ] T033 [P] [US1] Write `frontend/tests/unit/times-guard.test.ts` (render the hook through a tiny test component): with two gated `getTimes` calls (A then B), resolving B first and A last leaves B's result displayed (FR-003); the earlier request's `AbortSignal` is aborted; an `aborted` result never sets state; changing either input to invalid returns to idle and discards a pending answer.
+- [ ] T034 [P] [US1] Write `frontend/tests/component/booking-details.test.tsx`: choosing a time reveals the details form with labelled Name, Email, Phone fields and a summary showing the formatted date, the time and the party size (FR-006); changing the time keeps typed name/email/phone; submitting empty/invalid values shows each problem next to its field (text prefixed "Error:", `aria-invalid`, linked by `aria-describedby`), an error summary receives focus, values typed are kept, and **no** `createReservation` call is made; values with surrounding spaces are trimmed before sending; the body sent to `createReservation` has `partySize` as a number.
+- [ ] T035 [P] [US1] Write `frontend/tests/component/booking-confirm.test.tsx`: success shows the "Your table is booked" `h1` (focused), date, start time, end time, party size and guest name, and the sentence that an email with the way to cancel is on its way (FR-008); the fake returned a `secretCode`-bearing wire object through the real mapping path, and the secret value appears **nowhere** in the DOM text, attributes, `localStorage`, `sessionStorage`, `document.cookie`, `location`, or any `console` call spy (FR-009); "Start a new booking" returns to the booking page with empty date, party size and details and no leftover time (FR-015); double click and double `Enter` on submit produce exactly **one** `createReservation` call (FR-010, SC-004); while the request is pending the button is disabled and reads "Booking..." and date, party size, time and the three detail fields are disabled/read-only (FR-015); after a failed response the button is enabled again.
+- [ ] T036 [US1] Run `npm test` in `frontend/` and confirm T032-T035 FAIL (the booking feature does not exist). Append the RED result under this task.
+
+### Implementation for User Story 1
+
+- [ ] T037 [US1] Create `frontend/src/features/booking/useBookableTimes.ts` per data-model "Times state machine": inputs `date`, `partySize` (text), uses `validateDate`/`validatePartySize`; states `idle | loading | ready | empty | error | unreachable`; a request-id ref plus `AbortController`; only the latest id may set state; exposes `retry()` and `refresh()`; announces "times loaded/refreshed" through the polite region. (T033, part of T032.)
+- [ ] T038 [P] [US1] Create `frontend/src/features/booking/DateAndParty.tsx`: `<input type="date">` labelled "Date" with **no `min`/`max`**, party size as a text input with `inputMode="numeric"` labelled "Party size", both controlled and empty initially, field problems via `Field`, date input reporting bad input shows the date problem. (T032.)
+- [ ] T039 [P] [US1] Create `frontend/src/features/booking/TimeChoices.tsx`: one radio group (arrow keys work across periods); each service period is a `fieldset` with a `legend` of the returned name; no radio preselected; the selected one shows a check mark and thicker border; targets >= 44 px. Receives `periods`, `selected`, `onSelect`, `disabled`. (T032.)
+- [ ] T040 [P] [US1] Create `frontend/src/features/booking/DetailsForm.tsx`: summary of date/time/party size, fields Name, Email (`type="email"`, `autocomplete="email"`), Phone (`type="tel"`, `autocomplete="tel"`), error summary with focus, `disabled` when locked, submit button labelled "Confirm booking" / "Booking..." while pending. Props carry values and problems; no network code here. (T034, T035.)
+- [ ] T041 [US1] Create `frontend/src/features/booking/useReservation.ts` per data-model "Submission state machine": ref lock set synchronously before the request and released in `finally`; validates with `validateDraft` first; trims values; builds the request with `partySize` as a number; on success moves to `confirmed` holding **only** the `Confirmation`; on any other result returns to `editing` keeping values (refusal/serverError/unreachable messages are completed in US2). (T035.)
+- [ ] T042 [P] [US1] Create `frontend/src/features/booking/Confirmation.tsx`: `h1` "Your table is booked" with focus on show, definition list of formatted date, start time, end time, party size and guest name, the "We've emailed you how to cancel." sentence from the catalog, and a "Start a new booking" button. (T035.)
+- [ ] T043 [US1] Create `frontend/src/features/booking/BookingPage.tsx`: holds the `BookingDraft` in component state only, composes `DateAndParty`, times region (idle prompt / loading / ready / empty / error / unreachable with the shared `StatusMessage` and retry), `DetailsForm` once a time is selected, and `Confirmation`; `h1` "Book a table"; resets everything on "Start a new booking". Empty/error/unreachable regions are wired minimally here and completed by US2. (T032-T035.)
+- [ ] T044 [US1] Create `frontend/src/App.tsx` (ApiClient provider, `PageShell`, router: `/` -> `BookingPage`, unknown path -> `replaceState("/")`), `frontend/src/bootstrap.ts` (`bootstrap(rootElement, { rawApiBaseUrl })`: for now builds the real client from `readConfig` input and renders `<App>`; the cancellation fragment and config gate are added in US3 and US4) and `frontend/src/main.tsx` (calls `bootstrap(document.getElementById("root"), { rawApiBaseUrl: import.meta.env.VITE_API_BASE_URL })`). Uses `StrictMode`. (T030 `renderApp`, T032-T035.)
+- [ ] T045 [US1] Run `npm test`, `npm run typecheck`, `npm run lint` in `frontend/`: T032-T035 pass (GREEN) and the foundation tests still pass. Append the GREEN result under this task.
+
+**Checkpoint**: User Story 1 is fully functional and testable on its own (the happy path books a table in the fake environment).
+
+---
+
+## Phase 4: User Story 2 - Understand why nothing can be booked, and recover from refusals (Priority: P2)
+
+**Goal**: Every empty day and every refusal on confirm produces its own plain message and next step; a taken time reloads the list and keeps the typed details.
+
+**Independent Test**: With `FakeApiClient` returning each documented reason for "no times" and each documented refusal on confirm, each produces its own distinct plain message and next step (spec US2).
+
+### Tests for User Story 2 (write first)
+
+- [ ] T046 [P] [US2] Write `frontend/tests/component/booking-empty-day.test.tsx` using `it.each` over **every** `AvailabilityReason` (`closed_date`, `closed_day`, `too_soon`, `too_far_ahead`, `outside_service_hours`, `party_too_large`, `no_table_free`): the returned empty answer shows exactly that reason's catalog message and next step, the date and party size remain editable on the same page, and no reason code, status number or raw value is visible (FR-004, SC-003); an answer with no periods **and no reason** shows the generic message with a retry control, never a blank list (FR-002); an unknown reason string shows the generic message with retry; server error on times shows "We couldn't load the available times." with retry; unreachable on times shows the distinct "We can't reach the server right now." with retry; retry re-requests the same query; typed 400 `VALIDATION_ERROR` on times shows the form-level generic message.
+- [ ] T047 [P] [US2] Write `frontend/tests/component/booking-refusals.test.tsx`: **NO_AVAILABILITY** `no_table_free` on confirm: shows "That time was just taken.", reloads times for the same date and party size (second `getTimes` call), clears only the selected time, keeps name/email/phone exactly as typed (SC-008), and if the reloaded list still contains the same time it can be selected again; the reloaded list empty shows the reason message as in US2 scenario 1; reload failing with server error / unreachable shows the error / unreachable state with retry, no time selected, details kept (FR-011); `it.each` over the other six `NO_AVAILABILITY` reasons shows that reason's message, never generic; **CONFLICT** `duplicate_reservation` shows the duplicate message ("This email already has a reservation around that time. Nothing was booked.") and, in the DOM, **no** date, time, party size, name or id from any existing reservation (FR-012); `CONFLICT` with `table_has_upcoming_reservations` or an unknown reason shows the generic message; **VALIDATION_ERROR** with fields `name`, `email`, `phone`, `partySize`, `date`, `time` shows each problem next to its field and keeps values; an unknown field name shows "Please check the details and try again." and never the raw field name (FR-028); **serverError** on create shows "Your reservation couldn't be completed." plus "Check your email before trying again." with a retry control (FR-013); **unreachable** on create shows the unknown-outcome message ("We don't know whether your reservation was made. A confirmation email may already be on its way.") and does not claim success or failure (FR-014); retrying after unknown outcome where the fake answers `duplicate_reservation` shows the duplicate message and no second reservation exists in the fake; any unexpected error code shows the generic message; no case shows a code, status number, field path or server message; each failure message is announced in the assertive region and the success/list-refresh messages in the polite region.
+- [ ] T048 [US2] Run `npm test` in `frontend/` and confirm T046-T047 FAIL (refusal handling is not implemented). Append the RED result under this task.
+
+### Implementation for User Story 2
+
+- [ ] T049 [US2] Extend `frontend/src/features/booking/useBookableTimes.ts` and the times region of `BookingPage.tsx`: `empty` state renders `messageForAvailability(reason)` (generic + retry when `reason` is missing or unknown), `error` and `unreachable` states render their distinct messages with a retry button, both announced in the correct live region; expose `refresh()` (same query, keeps the request-id guard). (T046.)
+- [ ] T050 [US2] Extend `frontend/src/features/booking/useReservation.ts` and `DetailsForm.tsx`: map each `CreateRefusal` per `contracts/api-usage.md` section 2: `NO_AVAILABILITY` -> message (with the "That time was just taken." lead-in for `no_table_free`), call `refresh()` on the times hook, clear only `time`, keep details; `CONFLICT` -> `messageForConflict(reason)`; `VALIDATION_ERROR` -> per-field problems from the field names (unknown -> `form` message) with the error summary focused; `serverError` -> the general create-failure message with retry; `unreachable` -> the unknown-outcome message; any other code -> generic. Messages come only from `messages.ts`. (T047.)
+- [ ] T051 [US2] Run `npm test`, `npm run typecheck`, `npm run lint` in `frontend/`: T046-T047 pass (GREEN) and all earlier tests still pass. Append the GREEN result under this task.
+
+**Checkpoint**: User Stories 1 and 2 both work; every documented empty-day reason and refusal has its own message.
+
+---
+
+## Phase 5: User Story 3 - Cancel a reservation from the email link (Priority: P2)
+
+**Goal**: Open `/cancel#code=...`, remove the code from the address immediately, cancel only after an explicit button press, and show one of four final outcomes (or a retryable temporary failure).
+
+**Independent Test**: Open the cancellation page with a code using `FakeApiClient`; the address bar has no code, no request was sent until the button was pressed, and each of the four outcomes is shown after pressing it (spec US3).
+
+### Tests for User Story 3 (write first)
+
+- [ ] T052 [P] [US3] Write `frontend/tests/component/bootstrap-fragment.test.tsx`: with `location` set to `/cancel#code=SECRET123`, `bootstrap()` strips the fragment **before** the first render and before any request (`location.hash === ""`, `location.href` does not contain the code), via `history.replaceState` (history length unchanged, no entry contains the code), the query string is preserved; the code reaches `CancelPage` as `initialCancelCode`; rendering `<App>` in `StrictMode` still shows the "Cancel my reservation" button (the code survives double-invoked initialisers); `bootstrap()` on `/` or without a fragment passes `null`; a fragment without `code=` or with an empty code passes `null`; `index.html` contains `<meta name="referrer" content="no-referrer">` (read the file in the test).
+- [ ] T053 [P] [US3] Write `frontend/tests/component/cancel.test.tsx`: with a code, opening the page sends **zero** `cancelReservation` calls and shows the `h1` "Cancel your reservation" and a clearly labelled "Cancel my reservation" button (FR-017, SC-005); pressing it sends exactly one request with the code in the body; **cancelled** shows the cancelled message with formatted date, start, end and party size; **already cancelled** says it was already cancelled and nothing more is needed; **cannot cancel** says the reservation has started or ended and can no longer be cancelled online; **not found** says it could not be found and to check the link or type the code again; `VALIDATION_ERROR` is shown as the not-found case; each outcome has a link to the booking page (FR-021) and moves focus to its `h1`; each outcome is announced politely; double click and double `Enter` send exactly one request and show one final outcome (SC-004); **no code**: explains that the code is missing, shows a labelled code field and a disabled button while the field is empty, trims pasted spaces, and uses the same explicit button; reloading (fresh render without `initialCancelCode`) behaves as having no code; after a final outcome the code is cleared from state and the manual field is empty (FR-020); a **temporary failure** (serverError, then unreachable) shows "We couldn't complete the cancellation just now." with a retry, keeps the code, and a retry succeeds; the code never appears in the DOM text or attributes, `localStorage`, `sessionStorage`, `document.cookie`, `location` or any `console` spy; an answer arriving after navigating to `/` is ignored and not shown there; a cancellation answer with a malformed body is a temporary failure with retry.
+- [ ] T054 [US3] Run `npm test` in `frontend/` and confirm T052-T053 FAIL (cancellation does not exist). Append the RED result under this task.
+
+### Implementation for User Story 3
+
+- [ ] T055 [US3] Add `takeCodeFromFragment()` to `frontend/src/bootstrap.ts` per research R8: read `location.hash` with `new URLSearchParams(hash.slice(1)).get("code")`, then immediately `history.replaceState(null, "", location.pathname + location.search)`, return the trimmed non-empty code or `null`; call it only when the pathname is `/cancel`, before React renders, and pass the result to `<App initialCancelCode={...}>`. (T052.)
+- [ ] T056 [US3] Create `frontend/src/features/cancel/useCancellation.ts` per data-model "Cancellation state": state `code`, `phase`, `outcome`; ref lock so at most one request is in flight; trims the code on submit; final outcomes (`cancelled`, `alreadyCancelled`, `cannotCancel`, `notFound`, with `VALIDATION_ERROR` mapped to `notFound`) set `code` to `""`; `serverError`/`unreachable`/malformed -> `temporaryFailure` keeping the code; any other refusal code -> temporary failure with the generic message; ignores `aborted` and results arriving after unmount (abort on unmount). Never logs. (T053.)
+- [ ] T057 [P] [US3] Create `frontend/src/features/cancel/CancelPage.tsx` and `frontend/src/features/cancel/OutcomeViews.tsx`: `h1` "Cancel your reservation"; with a code the explanation plus the "Cancel my reservation" button (busy label and disabled while submitting); without a code the missing-code explanation, a labelled code field (`Field`, `autocomplete="off"`, `spellcheck={false}`) and the button disabled while empty; the four outcome views each with its own `h1` focus, catalog text, details for "cancelled" and a link "Make a new booking" to `/` via `navigate`; temporary failure message with retry in the assertive region. (T053.)
+- [ ] T058 [US3] Update `frontend/src/App.tsx` to route `/cancel` -> `CancelPage` (receiving `initialCancelCode`) and keep `/` -> `BookingPage`; the code is consumed only once (initial state), so navigating away and back never restores it. (T052, T053.)
+- [ ] T059 [US3] Run `npm test`, `npm run typecheck`, `npm run lint` in `frontend/`: T052-T053 pass (GREEN) and all earlier tests still pass. Append the GREEN result under this task.
+
+**Checkpoint**: User Stories 1, 2 and 3 all work; the secret code never leaves memory.
+
+---
+
+## Phase 6: User Story 4 - Dependable on any device and for everyone (Priority: P3)
+
+**Goal**: Service-unavailable screen for bad configuration; page titles and headings; consistent loading/error/unreachable states; responsive, keyboard-only, accessible and reduced-motion behavior verified in a real browser.
+
+**Independent Test**: Run each screen at 360 px and at desktop width, finish both flows with the keyboard only, and simulate loading, server failure and unreachable server on every server-dependent screen (spec US4).
+
+### Tests for User Story 4 (write first)
+
+- [ ] T060 [P] [US4] Write `frontend/tests/component/config.test.tsx`: `bootstrap()` with a missing, empty or invalid `rawApiBaseUrl` renders the "service not available" screen ("This service isn't available right now." / "Please try again later."), with one `h1`, no retry button, **no** request made, and no technical text (no "VITE", "URL", env name, address); with a valid value the booking page renders; the cancellation path with an invalid config also shows the same screen and still strips the fragment from the address (FR-030, FR-016).
+- [ ] T061 [P] [US4] Write `frontend/tests/component/structure-a11y.test.tsx`: every screen state has exactly one `h1` and `header`/`main`/`footer` landmarks; `document.title` includes the service name and the current step ("Book a table", "Your table is booked", "Cancel your reservation", outcomes, "Service not available"); focus moves to the new `h1` after: time selected -> details form, confirmation, each cancellation outcome, and to the error summary after failed validation; neutral changes appear in the `role="status"` region and failures/validation in the `role="alert"` region with the catalog text; every input has an associated visible label; the app has no `<select>` or element relying on `title` for its name; the English-only requirement: no language switcher present and `<html lang="en">`.
+- [ ] T062 [P] [US4] Write `frontend/tests/component/states.test.tsx`: for the times region and for the cancel button, drive loading (gated deferred), server error and unreachable through `FakeApiClient` and assert the three are visibly distinct, never show technical details, and the unreachable state has a retry control (FR-027); assert that an in-flight request answered after the other destination was opened is ignored.
+- [ ] T063 [P] [US4] Write the Playwright support `frontend/e2e/support/mock-api.ts` (a `mockApi(page, scenario)` helper using `page.route("http://127.0.0.1:3999/**")` for times, create, cancel, including refusals, delays, and `route.abort("connectionrefused")`; fixtures with the wire shapes, including a `secretCode` in the create answer) and the specs: `frontend/e2e/layout.spec.ts` (every screen and state of the `contracts/ui-routes.md` screens table at 360x740 and 1280x800 and with browser zoom/`text-size` emulating 200 %: `document.documentElement.scrollWidth <= clientWidth`, all interactive targets at least 44x44, content column narrower than the viewport on wide screens), `frontend/e2e/keyboard.spec.ts` (book end to end and cancel end to end using only `Tab`, `Shift+Tab`, `Space`, arrows and `Enter`; focus lands on the new heading at each step; focus indicator visible), `frontend/e2e/a11y.spec.ts` (`@axe-core/playwright` with WCAG 2.1 A/AA tags, zero serious or critical on every screen and state of the screens table: config, idle, loading, ready, empty (one reason), error, unreachable, details, field problems, submitting, refusal, unknown outcome, confirmation, cancel-ready, cancel-no-code, four outcomes; also with `forcedColors: "active"` and `reducedMotion: "reduce"` emulation, asserting no running animations), `frontend/e2e/unreachable.spec.ts` (connection refused and a never-answering route: unreachable message with retry appears within 10 s on the booking times, booking submit and cancel), `frontend/e2e/timezones.spec.ts` (under `tz-madrid` and `tz-honolulu` projects the same mocked times and confirmation show identical text, including an end time that crosses the visitor's midnight), and a smoke test that `/cancel#code=X` served by `vite preview` renders the cancellation page and the address bar loses the fragment before any request is observed.
+- [ ] T064 [US4] Run `npm test` for T060-T062 and `npx playwright test` for T063 in `frontend/` and confirm the behavioural gaps FAIL (the config screen, titles, focus and responsive styles are not yet complete). Append the RED result under this task (the e2e suites that already pass are noted as verification-only).
+
+### Implementation for User Story 4
+
+- [ ] T065 [P] [US4] Create `frontend/src/features/unavailable/ServiceUnavailable.tsx`: single state, `h1` "Service not available", config message from the catalog, no retry, no technical text. (T060.)
+- [ ] T066 [US4] Update `frontend/src/bootstrap.ts` and `frontend/src/App.tsx`: call `readConfig(rawApiBaseUrl)` first; `{ ok: false }` renders `ServiceUnavailable` (no client is created, no request is made) while the cancellation fragment is still stripped from the address on `/cancel`; `{ ok: true }` builds `createApiClient({ baseUrl })` and renders the app. (T060.)
+- [ ] T067 [P] [US4] Create `frontend/src/shared/useDocumentTitle.ts` and use it in every screen so `document.title` is `"<step or outcome> - La Mesa"` (service name constant defined once in `src/shared/ui/PageShell.tsx`); ensure each screen has exactly one `h1`. (T061.)
+- [ ] T068 [US4] Audit and complete the accessibility wiring against T061/T062: `LiveRegion` usage for every status/failure listed in `contracts/messages.md`; `useFocusOnChange` on the details form heading, confirmation, outcomes and error summaries; every API-dependent region has loading, empty (where applicable), error and unreachable states using the shared `StatusMessage`; no raw technical text anywhere. (T061, T062.)
+- [ ] T069 [US4] Finish `frontend/src/styles/*.css` against T063: no horizontal overflow from 360 px to 1920 px and at 200 % text size (wrapping, `min-width: 0` on flex/grid children, rem units), content column limited (about 40 rem), targets >= 44x44 incl. radios and links, visible focus ring everywhere, selection and errors distinguishable in `forced-colors: active`, `prefers-reduced-motion: reduce` removes the spinner animation and transitions, contrast tokens verified by axe. (T063.)
+- [ ] T070 [US4] Run `npm test`, `npm run typecheck`, `npm run lint` and `npx playwright test` in `frontend/` (install the browser first with `npx playwright install chromium` if missing): everything passes (GREEN). Append the GREEN result under this task. Fix real defects found by axe or the layout checks in the source, never by weakening the tests.
+
+**Checkpoint**: All four stories are complete and independently verifiable.
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
+
+**Purpose**: Documentation, drift check, mutation checks, manual validation and final guards.
+
+- [ ] T071 [P] Complete `frontend/README.md`: prerequisites (Node >= 22.12), install/configure/scripts, the three public operations used, `api:types` / `api:check` and when to run them, backend settings (`CORS_ORIGINS` includes `http://localhost:5173`, `CANCEL_LINK_BASE_URL=http://localhost:5173/cancel`, to be set to `<site address>/cancel` before release), Playwright browser install, project structure, dependency policy (`react` and `react-dom` only), the security rules (no storage, no logging, fragment handling), and the usability test protocol of SC-001 (at least 10 runs, a participant who did not build the interface, 360 px phone, fake server, timed from opening to confirmation, results table).
+- [ ] T072 Mutation checks (temporary, reverted, none committed): (a) remove one key from `AVAILABILITY_MESSAGES` -> `npm run typecheck` fails; (b) add `secretCode` to the mapped `Confirmation` -> `client.test.ts` and `booking-confirm.test.tsx` fail; (c) drop the request-id check in `useBookableTimes` -> `times-guard.test.ts` fails; (d) remove the submit lock -> the double-click tests fail; (e) read the fragment inside `CancelPage` instead of `bootstrap` -> `bootstrap-fragment.test.tsx` fails; (f) add `min` to the date input and a `localStorage.setItem` call -> `guards.test.ts`/lint fail; (g) set `padding` that overflows at 360 px -> `layout.spec.ts` fails; (h) break a label -> `a11y.spec.ts` fails. Record each outcome under this task and confirm `git diff` shows the reverts.
+- [ ] T073 Contract drift check: start the backend with a throwaway configuration (never the user's `.env`), run `npm run api:check` in `frontend/` (expect exit 0), then simulate drift by editing one enum value in a temporary copy of the spec (via `API_SPEC_URL` pointing to a local server or file) and confirm `api:check` exits non-zero with a plain message and that `npm run typecheck` flags the missing catalog entry. Stop the backend.
+- [ ] T074 Run the full quickstart validation of `specs/005-customer-booking-ui/quickstart.md` section 2 (`typecheck`, `lint`, `test`, `e2e`) and section 4 steps 2-9 against the real backend with a throwaway database and MailDev (or any SMTP catcher); record pass/fail per step under this task. Include the manual keyboard-only and 360 px checks.
+- [ ] T075 Run the SC-001 usability protocol (at least 10 runs; 9 of 10 must finish in under 2 minutes) or, if participants are not available now, record explicitly that it is pending and must be done before release; do not mark SC-001 as met without the results.
+- [ ] T076 Final guard and cleanliness check: `git status` shows changes only under `frontend/` and `specs/005-customer-booking-ui/` (plus the already modified root `.gitignore` if intentional), `backend/` is untouched (`git diff --stat -- backend` is empty), `package.json` `dependencies` has only `react` and `react-dom`, no `console.`/storage/`new Date(<string>)` in `src/`, `npm run api:check` result noted, and all of `npm run typecheck && npm run lint && npm test && npm run e2e` pass once more. Do not commit unless asked.
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: no dependencies. T010 needs a backend running with a throwaway configuration.
+- **Foundational (Phase 2)**: depends on Setup; **blocks all stories**. Order: tests T011-T017 -> RED T018 -> implementation T019-T030 -> GREEN T031. Inside it: T019 before T022/T023/T024 (types); T010 before T022/T023 (generated enums); T023 after T019; T030 (test support) needs T019 and `App` from T044, so `renderApp` is completed in T044 (create it in T030 with the `App` import resolved once T044 lands; component tests are not run before T044).
+- **US1 (Phase 3)**: depends on Foundational. MVP.
+- **US2 (Phase 4)**: depends on US1 (it extends `useBookableTimes`, `useReservation`, `DetailsForm`, `BookingPage`).
+- **US3 (Phase 5)**: depends only on Foundational and `App`/`bootstrap` from T044; independent of US1/US2 behaviour, so it can proceed in parallel with US2 once T044 is done.
+- **US4 (Phase 6)**: depends on US1, US2 and US3 (it audits and finishes every screen).
+- **Polish (Phase 7)**: depends on all stories.
+
+### Within Each Story
+
+- Tests are written first and must be seen RED before implementation.
+- Types/validators/catalog (foundation) -> hooks -> components -> page -> app wiring.
+- A story is done only when its tests pass (GREEN task) and the earlier suites still pass.
+
+### Parallel Opportunities
+
+- Setup: T003-T008 in parallel after T002.
+- Foundational tests T011-T017 all in parallel; implementation T019-T022, T024-T030 in parallel (different files) except T023.
+- US1: tests T032-T035 in parallel; components T038, T039, T040, T042 in parallel; hooks T037 and T041 are separate files but T043/T044 integrate them.
+- US2 tests T046, T047 in parallel; US3 tests T052, T053 in parallel; US3 can run alongside US2.
+- US4 tests T060-T063 in parallel; T065 and T067 in parallel.
+
+### Parallel Example: User Story 1
+
+```text
+# After T036 (RED confirmed), launch together:
+Task: "Create DateAndParty.tsx in frontend/src/features/booking/DateAndParty.tsx"
+Task: "Create TimeChoices.tsx in frontend/src/features/booking/TimeChoices.tsx"
+Task: "Create DetailsForm.tsx in frontend/src/features/booking/DetailsForm.tsx"
+Task: "Create Confirmation.tsx in frontend/src/features/booking/Confirmation.tsx"
+```
+
+---
+
+## Implementation Strategy
+
+### MVP First (User Story 1 Only)
+
+1. Phase 1: Setup (T001-T010).
+2. Phase 2: Foundational (T011-T031) - blocks everything.
+3. Phase 3: User Story 1 (T032-T045).
+4. **STOP and VALIDATE**: book a table in the fake environment end to end; check the secret code is nowhere.
+
+### Incremental Delivery
+
+1. Setup + Foundational -> foundation ready.
+2. US1 -> test independently -> MVP (a customer can book).
+3. US2 -> every refusal and empty day explained.
+4. US3 -> cancellation from the email link (can be built in parallel with US2).
+5. US4 -> responsive, accessible, resilient across all screens; real-browser checks.
+6. Polish -> README, mutation checks, drift check, quickstart, usability runs.
+
+### Notes
+
+- Stop at each checkpoint to validate; user stops between phases are welcome (staged work).
+- Commit only when asked. Never use the user's `.env` or database for any run; use throwaway configuration.
+- If a pinned dependency fails to install or a peer conflict appears, stop and report it; do not force.
