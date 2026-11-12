@@ -7,6 +7,7 @@ import {
   messageForAvailability,
   type Message,
 } from "../../api/messages";
+import { useDocumentTitle } from "../../shared/useDocumentTitle";
 import { Button } from "../../shared/ui/Button";
 import { Spinner } from "../../shared/ui/Spinner";
 import { StatusMessage } from "../../shared/ui/StatusMessage";
@@ -44,6 +45,9 @@ function BookingFlow({ onNewBooking }: { onNewBooking: () => void }) {
       refresh();
     }, [refresh]),
   });
+
+  const confirmed = reservation.phase === "confirmed" && reservation.confirmation !== null;
+  useDocumentTitle(confirmed ? CLIENT_MESSAGES.confirmation.title : "Book a table");
 
   if (reservation.phase === "confirmed" && reservation.confirmation) {
     return <Confirmation confirmation={reservation.confirmation} onNewBooking={onNewBooking} />;

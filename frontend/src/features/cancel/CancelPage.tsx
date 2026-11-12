@@ -3,7 +3,8 @@ import { CLIENT_MESSAGES } from "../../api/messages";
 import { Button } from "../../shared/ui/Button";
 import { Field } from "../../shared/ui/Field";
 import { StatusMessage } from "../../shared/ui/StatusMessage";
-import { OutcomeView } from "./OutcomeViews";
+import { useDocumentTitle } from "../../shared/useDocumentTitle";
+import { OutcomeView, messageFor } from "./OutcomeViews";
 import { useCancellation } from "./useCancellation";
 
 /** Holds the code from the link until the cancel page has taken it into its own state. */
@@ -18,6 +19,10 @@ export function CancelPage({ handover }: { handover: CodeHandover }) {
   useEffect(() => {
     handover.clear();
   }, [handover]);
+
+  useDocumentTitle(
+    cancellation.outcome ? messageFor(cancellation.outcome).title : "Cancel your reservation",
+  );
 
   if (cancellation.outcome) return <OutcomeView outcome={cancellation.outcome} />;
 

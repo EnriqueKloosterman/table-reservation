@@ -1,6 +1,7 @@
-import { useRef, type SyntheticEvent } from "react";
+import { useEffect, useRef, type SyntheticEvent } from "react";
 import { FIELD_PROBLEMS, type ProblemKey } from "../../api/messages";
 import type { FieldProblem } from "../../api/types";
+import { useAnnounce } from "../../shared/a11y/LiveRegion";
 import { useFocusOnChange } from "../../shared/a11y/useFocusOnChange";
 import { formatDate, formatTime } from "../../shared/dates";
 import { Button } from "../../shared/ui/Button";
@@ -44,6 +45,12 @@ export function DetailsForm({
   onChange,
   onSubmit,
 }: DetailsFormProps) {
+  // Focus stays on the chosen time so arrow keys keep working across the radio group; the new
+  // form is announced instead.
+  const { polite } = useAnnounce();
+  useEffect(() => {
+    polite("Your details section is ready below the times.");
+  }, [polite]);
   const summaryRef = useRef<HTMLElement>(null);
   useFocusOnChange(summaryRef, problemsVersion);
   const listed = SUMMARY.filter(([field]) => problems[field]);

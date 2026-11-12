@@ -5,7 +5,7 @@ import { formatDate, formatTime } from "../../shared/dates";
 import { navigate } from "../../shared/router";
 import type { CancelOutcome } from "./useCancellation";
 
-function messageFor(outcome: CancelOutcome): Message {
+export function messageFor(outcome: CancelOutcome): Message {
   switch (outcome.kind) {
     case "cancelled":
       return CLIENT_MESSAGES.cancelled;

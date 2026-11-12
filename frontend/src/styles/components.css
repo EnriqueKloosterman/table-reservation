@@ -197,3 +197,15 @@
 .summary__label::after {
   content: ":";
 }
+
+/* Links are touch targets too (at least 44x44). */
+.shell__main a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+}
+
+.shell__main p:has(> a) {
+  margin: 0;
+}

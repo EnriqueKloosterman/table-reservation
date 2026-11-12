@@ -3,6 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "./App";
 import { createApiClient } from "./api/client";
 import { readConfig } from "./config/env";
+import { ServiceUnavailable } from "./features/unavailable/ServiceUnavailable";
+import { PageShell } from "./shared/ui/PageShell";
 
 interface BootstrapOptions {
   rawApiBaseUrl: string | undefined;
@@ -26,8 +28,16 @@ export function bootstrap(rootElement: HTMLElement, { rawApiBaseUrl }: Bootstrap
   const root = createRoot(rootElement);
   const initialCancelCode = window.location.pathname === "/cancel" ? takeCodeFromFragment() : null;
   const config = readConfig(rawApiBaseUrl);
-  // An invalid configuration gets its own screen in the accessibility story; nothing is rendered yet.
-  if (!config.ok) return root;
+  if (!config.ok) {
+    root.render(
+      createElement(
+        StrictMode,
+        null,
+        createElement(PageShell, null, createElement(ServiceUnavailable)),
+      ),
+    );
+    return root;
+  }
   const client = createApiClient({ baseUrl: config.apiBaseUrl });
   root.render(createElement(StrictMode, null, createElement(App, { client, initialCancelCode })));
   return root;
